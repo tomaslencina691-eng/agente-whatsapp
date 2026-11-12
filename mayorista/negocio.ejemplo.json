@@ -1,0 +1,66 @@
+{
+  "marca": "Mi Tienda",
+  "minimo": 6,
+  "tramos": [
+    {
+      "desde": 12,
+      "precio": 25000
+    },
+    {
+      "desde": 6,
+      "precio": 28000
+    }
+  ],
+  "categorias": [
+    {
+      "id": "arg",
+      "nombre": "Fútbol argentino",
+      "tiendanube": [
+        "FÚTBOL ARGENTINO",
+        "BOCA JUNIORS",
+        "RIVER PLATE"
+      ]
+    },
+    {
+      "id": "sel",
+      "nombre": "Selección",
+      "tiendanube": [
+        "SELECCIÓN ARGENTINA"
+      ]
+    },
+    {
+      "id": "int",
+      "nombre": "Internacional",
+      "tiendanube": [
+        "FÚTBOL INTERNACIONAL"
+      ]
+    },
+    {
+      "id": "retro",
+      "nombre": "Retro",
+      "tiendanube": [
+        "RETRO / CLÁSICAS"
+      ]
+    }
+  ],
+  "reglas": [
+    {
+      "etiqueta": "Antes de pedir",
+      "titulo": "El pago asegura las prendas",
+      "texto": "Hasta que no llegue el pago, las prendas no quedan aseguradas. Cuando llega, se descuentan del stock de la web."
+    },
+    {
+      "etiqueta": "Envío",
+      "titulo": "Envío a cargo del comprador",
+      "texto": "Coordinamos el envío con el transporte que elijas. El costo es a cargo del comprador."
+    },
+    {
+      "etiqueta": "Pago",
+      "titulo": "Solo transferencia",
+      "texto": "Una persona del equipo te pasa los datos al confirmar el pedido."
+    }
+  ],
+  "condiciones": "Condiciones: las prendas quedan aseguradas cuando llega el pago; envío a cargo del comprador; pago solo por transferencia.",
+  "cierre": "Cuando llega el pago, las prendas quedan aseguradas y se descuentan del stock.",
+  "pie": ""
+}

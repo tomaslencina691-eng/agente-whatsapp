@@ -1,0 +1,172 @@
+# El stack completo del agente de WhatsApp, en un solo archivo.
+#
+#   postgres  Una sola instancia (hoy una base: `agente`; mañana puede sumar
+#             otras con `CREATE DATABASE`, en vez de levantar un Postgres
+#             por cada app).
+#   agente    El webhook que atiende WhatsApp (webhook_chatwoot.py).
+#   pruebas   La plataforma de pruebas, con usuario y clave (servidor_nube.py).
+#   mayorista La web mayorista: catálogo con stock de Tiendanube y pedido por
+#             WhatsApp (carpeta mayorista/).
+#   (respaldo) Copia diaria a un bucket externo: está APARTE, en
+#             docker-compose.respaldo.yml, y hoy no se despliega.
+#
+# Chatwoot NO está acá: va como servicio de un clic de Coolify, que ya trae su
+# propio Postgres y Redis (y su propio backup, que se configura en Coolify).
+#
+# El motivo de que esto exista: el VPS anterior venció y se llevó puesto todo
+# lo que vivía adentro. Con este archivo, mudarse es repetir los pasos de abajo.
+#
+# ── MUDANZA A UN SERVIDOR NUEVO ─────────────────────────────────────────────
+#   1. Instalar Coolify y crear un proyecto.
+#   2. DNS: un registro A (o un wildcard *.tudominio.com) a la IP nueva.
+#   3. Chatwoot: servicio de un clic en Coolify. Crear el usuario admin,
+#      conectar el inbox de WhatsApp (y cambiar el webhook en Meta al dominio
+#      nuevo), crear la etiqueta `humano` y copiar el token de la API.
+#   4. Este stack: aplicación "Docker Compose" apuntando a este repo, rama main.
+#      Cargar en el panel las variables que figuran en .env.example.
+#   5. Dominios — el puerto va en la URL porque ninguno escucha en el 80:
+#        agente   →  https://agente.tudominio.com:8000
+#        pruebas  →  https://prompt.tudominio.com:8000
+#        mayorista → https://mayorista.tudominio.com:8000
+#   6. Deploy automático: webhook del repo en GitHub (Coolify muestra la URL).
+#   7. Respaldo (opcional, ver docker-compose.respaldo.yml): si existe uno,
+#      recuperar los datos con `docker exec <contenedor-respaldo> sh restore.sh`.
+# ────────────────────────────────────────────────────────────────────────────
+#
+# Las claves de Postgres tienen que ser solo letras y números: van adentro de
+# una URL (POSTGRES_DSN) y un símbolo como @ o / la rompe.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-agente}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: agente
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # El doble $$ es para que Compose no lo reemplace: lo expande el
+      # shell del contenedor.
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d agente"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  agente:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "8000"
+    environment:
+      PROVEEDOR: ${PROVEEDOR:-openai}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      MODELO_OPENAI: ${MODELO_OPENAI:-gpt-5}
+      MODO: produccion
+      # Postgres está en la misma red: se le habla por el nombre del servicio.
+      POSTGRES_DSN: postgresql://${POSTGRES_USER:-agente}:${POSTGRES_PASSWORD}@postgres:5432/agente
+      CACHE: ${CACHE:-true}
+      MAX_TOKENS: ${MAX_TOKENS:-4096}
+      MEMORIA_MENSAJES: ${MEMORIA_MENSAJES:-20}
+      PROMPT_SISTEMA: prompts/sistema.md
+      CHATWOOT_URL: ${CHATWOOT_URL}
+      CHATWOOT_TOKEN: ${CHATWOOT_TOKEN}
+      CHATWOOT_CUENTA_ID: ${CHATWOOT_CUENTA_ID:-1}
+      CHATWOOT_WEBHOOK_TOKEN: ${CHATWOOT_WEBHOOK_TOKEN}
+      CHATWOOT_ETIQUETA_HUMANO: ${CHATWOOT_ETIQUETA_HUMANO:-humano}
+      BUFFER_SEGUNDOS: ${BUFFER_SEGUNDOS:-60}
+      PUERTO: "8000"
+      TIENDANUBE_STORE_ID: ${TIENDANUBE_STORE_ID:-}
+      TIENDANUBE_ACCESS_TOKEN: ${TIENDANUBE_ACCESS_TOKEN:-}
+      TIENDANUBE_CONTACTO: ${TIENDANUBE_CONTACTO:-}
+      TIENDA_URL: ${TIENDA_URL:-}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/salud"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  pruebas:
+    build:
+      context: .
+      dockerfile: Dockerfile.pruebas
+    restart: unless-stopped
+    expose:
+      - "8000"
+    environment:
+      PROVEEDOR: ${PROVEEDOR:-openai}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      MODELO_OPENAI: ${MODELO_OPENAI:-gpt-5}
+      # Es un banco de ensayo: la conversación no necesita sobrevivir a un deploy.
+      MODO: test
+      SQLITE_RUTA: datos/conversaciones.db
+      CACHE: ${CACHE:-true}
+      MAX_TOKENS: ${MAX_TOKENS:-4096}
+      MEMORIA_MENSAJES: ${MEMORIA_MENSAJES:-20}
+      PROMPT_SISTEMA: prompts/sistema.md
+      PUERTO: "8000"
+      # Sin estas dos el contenedor se niega a arrancar (ver servidor_nube.py).
+      PRUEBAS_USUARIO: ${PRUEBAS_USUARIO}
+      PRUEBAS_CLAVE: ${PRUEBAS_CLAVE}
+      # Para el botón "Guardar definitivo". Vacías, el botón queda oculto.
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GITHUB_REPO: ${GITHUB_REPO:-}
+      GITHUB_BRANCH: ${GITHUB_BRANCH:-main}
+      GITHUB_PROMPT_PATH: ${GITHUB_PROMPT_PATH:-prompts/sistema.md}
+      COOLIFY_URL: ${COOLIFY_URL:-}
+      COOLIFY_TOKEN: ${COOLIFY_TOKEN:-}
+      COOLIFY_APP_UUID: ${COOLIFY_APP_UUID:-}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/salud"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  mayorista:
+    # La web mayorista (carrito que manda el pedido por WhatsApp) y su panel de
+    # administración en /admin. El stock y los talles son los de Tiendanube; en
+    # Postgres solo se guarda el historial de cambios del panel.
+    build:
+      context: ./mayorista
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "8000"
+    environment:
+      TIENDANUBE_STORE_ID: ${TIENDANUBE_STORE_ID:-}
+      TIENDANUBE_ACCESS_TOKEN: ${TIENDANUBE_ACCESS_TOKEN:-}
+      TIENDANUBE_CONTACTO: ${TIENDANUBE_CONTACTO:-}
+      TIENDA_URL: ${TIENDA_URL:-}
+      POSTGRES_DSN: postgresql://${POSTGRES_USER:-agente}:${POSTGRES_PASSWORD}@postgres:5432/agente
+      # El login del panel (/admin). Sin las tres, el panel queda apagado.
+      # SESION_SECRETO: al menos 24 caracteres al azar (firma las cookies).
+      ADMIN_USUARIO: ${ADMIN_USUARIO:-}
+      ADMIN_CLAVE: ${ADMIN_CLAVE:-}
+      SESION_SECRETO: ${SESION_SECRETO:-}
+      # Número al que llega el pedido (con código de país, sin + ni espacios).
+      MAYORISTA_WHATSAPP: ${MAYORISTA_WHATSAPP:-}
+      # Cada cuánto se vuelve a leer Tiendanube.
+      MAYORISTA_CACHE_SEGUNDOS: ${MAYORISTA_CACHE_SEGUNDOS:-300}
+      # "true": no se puede pedir más unidades de un talle que las que hay.
+      MAYORISTA_LIMITAR_STOCK: ${MAYORISTA_LIMITAR_STOCK:-true}
+      PUERTO: "8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/salud"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  postgres_data:
