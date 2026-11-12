@@ -4,7 +4,7 @@
 #             otras con `CREATE DATABASE`, en vez de levantar un Postgres
 #             por cada app).
 #   agente    El webhook que atiende WhatsApp (webhook_chatwoot.py).
-#   pruebas   La plataforma de pruebas, con usuario y clave (servidor_nube.py).
+#   pruebas   La plataforma de pruebas, con usuario y clave (servidor_nube.py). Opcional.
 #   mayorista La web mayorista: catálogo con stock de Tiendanube y pedido por
 #             WhatsApp (carpeta mayorista/).
 #   (respaldo) Copia diaria a un bucket externo: está APARTE, en
@@ -94,6 +94,9 @@ services:
       start_period: 40s
 
   pruebas:
+    # Opcional: no arranca salvo que se active el perfil `pruebas` (en Coolify,
+    # agregar COMPOSE_PROFILES=pruebas). Pide PRUEBAS_USUARIO y PRUEBAS_CLAVE.
+    profiles: ["pruebas"]
     build:
       context: .
       dockerfile: Dockerfile.pruebas
