@@ -240,6 +240,9 @@ def api_catalogo(response: Response) -> dict:
         "marca": MARCA,
         "tiendaUrl": TIENDA_URL,
         "categorias": [{"id": c["id"], "nombre": c["nombre"]} for c in CATEGORIAS],
+        # False: la web no muestra el filtro "Versión jugador / fan" (se deduce del
+        # nombre) y usa solo las categorías de la tienda.
+        "filtroVersion": NEGOCIO.get("filtroVersion", True) is not False,
         "reglas": NEGOCIO.get("reglas") or [],
         "condiciones": NEGOCIO.get("condiciones") or "",
         "cierre": NEGOCIO.get("cierre") or "",

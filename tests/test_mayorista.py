@@ -9,6 +9,7 @@ Tiendanube no contesta), no que la API de ellos ande.
 
 from __future__ import annotations
 
+import json
 import sys
 import time
 from pathlib import Path
@@ -46,6 +47,25 @@ def cache_limpia():
     servidor._cache.update(t=0.0, catalogo=None, imagenes={})
     servidor.tn._fotos.clear()
     yield
+
+
+def _tramos(negocio: dict) -> list[dict]:
+    return sorted(
+        ({"desde": int(t["desde"]), "precio": int(t["precio"])} for t in negocio.get("tramos") or []),
+        key=lambda t: t["desde"],
+        reverse=True,
+    )
+
+
+@pytest.fixture(autouse=True)
+def negocio_de_ejemplo(monkeypatch):
+    """Los tests no dependen de negocio.json (es de cada cliente): rigen los datos de ejemplo."""
+    negocio = json.loads((Path(servidor.__file__).parent / "negocio.ejemplo.json").read_text(encoding="utf-8"))
+    monkeypatch.setattr(servidor, "NEGOCIO", negocio)
+    monkeypatch.setattr(servidor, "MARCA", negocio["marca"])
+    monkeypatch.setattr(servidor, "MINIMO", int(negocio["minimo"]))
+    monkeypatch.setattr(servidor, "CATEGORIAS", negocio["categorias"])
+    monkeypatch.setattr(servidor, "TRAMOS", _tramos(negocio))
 
 
 @pytest.fixture
@@ -226,7 +246,7 @@ def test_el_favicon_y_los_iconos_se_sirven(cliente):
     """Un favicon que da 404 deja la pestaña con el ícono genérico del navegador."""
     for ruta, tipo in [
         ("/favicon.ico", "icon"),
-        ("/favicon.svg", "svg"),
+        ("/logo.webp", "webp"),
         ("/apple-touch-icon.png", "png"),
         ("/icon-192.png", "png"),
         ("/icon-512.png", "png"),
@@ -241,6 +261,18 @@ def test_el_favicon_y_los_iconos_se_sirven(cliente):
 def test_la_pagina_enlaza_el_favicon(cliente):
     texto = cliente.get("/").text
 
-    assert 'rel="icon" href="favicon.svg"' in texto
+    assert 'rel="icon" href="favicon.ico"' in texto
     assert 'rel="apple-touch-icon"' in texto
     assert 'rel="manifest"' in texto
+
+
+def test_el_filtro_de_version_se_puede_apagar(cliente, monkeypatch):
+    """Con "filtroVersion": false en negocio.json la web usa solo las categorías de la tienda."""
+    monkeypatch.setattr(servidor, "_traer_productos", lambda: [producto()])
+
+    assert cliente.get("/api/catalogo").json()["filtroVersion"] is True
+
+    monkeypatch.setattr(servidor, "NEGOCIO", {**servidor.NEGOCIO, "filtroVersion": False})
+    servidor._cache["t"] = 0.0
+
+    assert cliente.get("/api/catalogo").json()["filtroVersion"] is False

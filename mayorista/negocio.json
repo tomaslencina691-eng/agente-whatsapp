@@ -1,8 +1,15 @@
 {
   "marca": "Simplemente Fútbol",
   "minimo": 6,
+  "filtroVersion": false,
   "tramos": [],
-  "categorias": [],
+  "categorias": [
+    { "id": "jugador", "nombre": "Versión jugador", "tiendanube": ["VERSION JUGADOR"] },
+    { "id": "g5", "nombre": "G5", "tiendanube": ["G5"] },
+    { "id": "fan", "nombre": "Fan", "tiendanube": ["FAN"] },
+    { "id": "retro", "nombre": "Retro", "tiendanube": ["RETRO"] },
+    { "id": "shorts", "nombre": "Shorts", "tiendanube": ["SHORTS"] }
+  ],
   "reglas": [],
   "condiciones": "",
   "cierre": "",
