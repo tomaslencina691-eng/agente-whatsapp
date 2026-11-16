@@ -29,6 +29,7 @@ import admin  # noqa: E402
 import agente_cliente  # noqa: E402
 import ajustes  # noqa: E402
 import almacen  # noqa: E402
+import avisos  # noqa: E402
 import historial as hist  # noqa: E402
 import tn  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
@@ -89,17 +90,26 @@ class AgenteFalso:
 
     def __init__(self):
         self.caido = False
+        self.avisos = []
         self.pruebas = []
         self.estado_ = {
             "proveedor": "openai", "modelo": "gpt-5", "prompt_base": "Sos el asistente de la tienda. Atendés por WhatsApp.",
             "base": {"activo": True, "mensajesPorRespuesta": 1, "topeMensajesPorDia": 10, "respetarResueltas": True, "soloElPrimerMensaje": False, "avisosEmail": "duenio@ejemplo.com"},
             "vivos": {}, "variables": list(admin.VARIABLES_DEL_AGENTE),
+            "conexiones": {"chatwoot": True, "whatsapp": False, "avisos": True, "avisos_para": "duenio@ejemplo.com"},
         }
 
     def estado(self):
         if self.caido:
             raise agente_cliente.ErrorDelAgente("No se pudo hablar con el agente: connection refused")
         return self.estado_
+
+    def avisar(self, asunto, cuerpo, tipo):
+        self.avisos.append((asunto, cuerpo, tipo))
+        return {"enviado": True, "activos": True}
+
+    def mail_de_prueba(self):
+        return {"ok": True, "para": "duenio@ejemplo.com"}
 
     def probar(self, prompt, mensajes, datos):
         if self.caido:
@@ -111,6 +121,12 @@ class AgenteFalso:
 @pytest.fixture
 def agente():
     return AgenteFalso()
+
+
+@pytest.fixture
+def avisador(alm, agente):
+    """Los avisos por mail, sin hilos: cada aviso queda anotado en el agente de mentira."""
+    return avisos.Avisador(alm, agente, sincrono=True)
 
 
 @pytest.fixture
@@ -139,13 +155,13 @@ def invalidaciones():
 
 
 @pytest.fixture
-def cliente(monkeypatch, tienda, memoria, alm, invalidaciones, agente):
+def cliente(monkeypatch, tienda, memoria, alm, invalidaciones, agente, avisador):
     monkeypatch.setattr(acceso, "USUARIO", "leo")
     monkeypatch.setattr(acceso, "CLAVE", CLAVE)
     monkeypatch.setattr(acceso, "SECRETO", "s" * 40)
     acceso._fallos.clear()
     app = FastAPI()
-    app.include_router(admin.crear_router(memoria, lambda: invalidaciones.append(1), alm, FILTROS, lambda: dict(DEFECTO_WEB), agente))
+    app.include_router(admin.crear_router(memoria, lambda: invalidaciones.append(1), alm, FILTROS, lambda: dict(DEFECTO_WEB), agente, avisador))
     return TestClient(app)
 
 
@@ -188,6 +204,8 @@ def pedido(alm, codigo, *items, estado="nuevo"):
         ("post", "/admin/api/tienda/cargar-stock"), ("post", "/admin/api/tienda/ignorar"), ("post", "/admin/api/tienda/restaurar"),
         ("get", "/admin/api/tienda/categorias"), ("put", "/admin/api/tienda/categorias"),
         ("get", "/admin/api/web"), ("put", "/admin/api/web"), ("put", "/admin/api/web/logo"), ("delete", "/admin/api/web/logo"),
+        ("get", "/admin/api/cuenta"), ("post", "/admin/api/cuenta/clave"), ("post", "/admin/api/usuarios"), ("put", "/admin/api/usuarios/pablo"),
+        ("delete", "/admin/api/usuarios/pablo"), ("get", "/admin/api/avisos"), ("put", "/admin/api/avisos"), ("post", "/admin/api/avisos/probar"),
         ("get", "/admin/api/agente"), ("put", "/admin/api/agente/prompt"), ("post", "/admin/api/agente/prompt/restaurar"), ("put", "/admin/api/agente/ajustes"),
         ("put", "/admin/api/agente/datos"), ("post", "/admin/api/agente/probar"), ("get", "/admin/api/agente/versiones/1"),
     ],
@@ -203,7 +221,7 @@ def test_con_la_clave_correcta_se_entra(cliente):
 
     assert r.status_code == 200
     assert "httponly" in r.headers["set-cookie"].lower()
-    assert cliente.get("/admin/api/estado").json() == {"configurado": True, "usuario": "leo"}
+    assert cliente.get("/admin/api/estado").json() == {"configurado": True, "usuario": "leo", "rol": "duenio", "permisos": ["stock", "web", "agente", "cuenta", "administrar"]}
 
 
 @pytest.mark.parametrize("usuario, clave", [("leo", "mala"), ("otro", CLAVE), ("", ""), ("LEO", CLAVE)])
@@ -1092,3 +1110,318 @@ def test_los_cambios_del_agente_exigen_el_header_propio(sesion):
     assert sesion.put("/admin/api/agente/ajustes", json=AJUSTES_AGENTE).status_code == 403
     assert sesion.put("/admin/api/agente/datos", json={}).status_code == 403
     assert sesion.post("/admin/api/agente/probar", json={"prompt": PROMPT, "mensajes": [{"rol": "yo", "texto": "x"}]}).status_code == 403
+
+
+# -- Personas con acceso y permisos ---------------------------------------------------------
+
+CLAVE_PABLO = "clave-de-pablo-123"
+
+
+def persona(sesion, usuario="pablo", rol="stock", clave=CLAVE_PABLO):
+    r = sesion.post("/admin/api/usuarios", json={"usuario": usuario, "clave": clave, "rol": rol}, headers=H)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def entrar_como(cliente, usuario="pablo", clave=CLAVE_PABLO):
+    """Otra persona entrando al mismo panel (su propio navegador)."""
+    otro = TestClient(cliente.app)
+    r = otro.post("/admin/api/login", json={"usuario": usuario, "clave": clave}, headers=H)
+    assert r.status_code == 200, r.text
+    return otro
+
+
+def test_el_duenio_da_de_alta_a_una_persona_y_ella_entra(sesion, cliente):
+    p = persona(sesion, rol="stock")
+
+    assert p["usuario"] == "pablo" and p["rol"] == "stock" and p["activo"] is True and "clave" not in str(p)
+    otro = entrar_como(cliente)
+    assert otro.get("/admin/api/estado").json()["permisos"] == ["stock", "cuenta"]
+
+
+def test_la_clave_de_una_persona_no_se_guarda_en_claro(sesion, alm):
+    persona(sesion)
+
+    guardada = alm.usuario("pablo")["clave_hash"]
+
+    assert CLAVE_PABLO not in guardada and guardada.startswith("scrypt$")
+
+
+@pytest.mark.parametrize("usuario, clave", [("pablo", "mala-mala-mala"), ("PABLOX", CLAVE_PABLO), ("", ""), ("leo", CLAVE_PABLO)])
+def test_con_datos_equivocados_la_persona_no_entra(sesion, cliente, usuario, clave):
+    persona(sesion)
+
+    r = TestClient(cliente.app).post("/admin/api/login", json={"usuario": usuario, "clave": clave}, headers=H)
+
+    assert r.status_code == 401
+
+
+def test_el_usuario_se_escribe_sin_importar_mayusculas(sesion, cliente):
+    persona(sesion, usuario="Pablo")
+
+    assert entrar_como(cliente, "PABLO").get("/admin/api/estado").json()["usuario"] == "pablo"
+
+
+@pytest.mark.parametrize(
+    "rol, permitido, prohibido",
+    [
+        ("stock", ["/admin/api/stock", "/admin/api/pedidos", "/admin/api/historial", "/admin/api/tienda/nuevos", "/admin/api/cuenta"], ["/admin/api/web", "/admin/api/tienda/categorias", "/admin/api/agente", "/admin/api/avisos"]),
+        ("stock_web", ["/admin/api/stock", "/admin/api/web", "/admin/api/tienda/categorias", "/admin/api/cuenta"], ["/admin/api/agente", "/admin/api/avisos"]),
+        ("todo", ["/admin/api/stock", "/admin/api/web", "/admin/api/agente", "/admin/api/cuenta"], ["/admin/api/avisos"]),
+    ],
+)
+def test_cada_rol_entra_solo_a_lo_suyo(sesion, cliente, rol, permitido, prohibido):
+    persona(sesion, rol=rol)
+    otro = entrar_como(cliente)
+
+    assert [otro.get(ruta).status_code for ruta in permitido] == [200] * len(permitido)
+    assert [otro.get(ruta).status_code for ruta in prohibido] == [403] * len(prohibido)
+
+
+def test_ninguna_persona_puede_administrar_a_las_demas(sesion, cliente):
+    persona(sesion, rol="todo")
+    otro = entrar_como(cliente)
+
+    assert otro.post("/admin/api/usuarios", json={"usuario": "otra", "clave": CLAVE_PABLO, "rol": "stock"}, headers=H).status_code == 403
+    assert otro.put("/admin/api/usuarios/pablo", json={"rol": "stock"}, headers=H).status_code == 403
+    assert otro.put("/admin/api/avisos", json={}, headers=H).status_code == 403
+
+
+def test_un_cambio_de_rol_rige_en_la_sesion_que_ya_estaba_abierta(sesion, cliente):
+    persona(sesion, rol="todo")
+    otro = entrar_como(cliente)
+    assert otro.get("/admin/api/agente").status_code == 200
+
+    sesion.put("/admin/api/usuarios/pablo", json={"rol": "stock"}, headers=H)
+
+    assert otro.get("/admin/api/agente").status_code == 403
+
+
+def test_desactivar_a_una_persona_la_saca_al_instante(sesion, cliente):
+    persona(sesion)
+    otro = entrar_como(cliente)
+
+    sesion.put("/admin/api/usuarios/pablo", json={"activo": False}, headers=H)
+
+    assert otro.get("/admin/api/stock").status_code == 401
+    assert TestClient(cliente.app).post("/admin/api/login", json={"usuario": "pablo", "clave": CLAVE_PABLO}, headers=H).status_code == 401
+    sesion.put("/admin/api/usuarios/pablo", json={"activo": True}, headers=H)
+    assert entrar_como(cliente).get("/admin/api/stock").status_code == 200
+
+
+def test_quitar_a_una_persona_la_saca_al_instante(sesion, cliente):
+    persona(sesion)
+    otro = entrar_como(cliente)
+
+    assert sesion.delete("/admin/api/usuarios/pablo", headers=H).status_code == 200
+
+    assert otro.get("/admin/api/stock").status_code == 401
+
+
+def test_el_duenio_resetea_la_clave_de_una_persona(sesion, cliente):
+    persona(sesion)
+
+    sesion.put("/admin/api/usuarios/pablo", json={"clave": "otra-clave-nueva-99"}, headers=H)
+
+    assert TestClient(cliente.app).post("/admin/api/login", json={"usuario": "pablo", "clave": CLAVE_PABLO}, headers=H).status_code == 401
+    assert entrar_como(cliente, clave="otra-clave-nueva-99").get("/admin/api/stock").status_code == 200
+
+
+@pytest.mark.parametrize(
+    "cuerpo, estado",
+    [
+        ({"usuario": "leo", "clave": CLAVE_PABLO, "rol": "stock"}, 422),  # el usuario del dueño
+        ({"usuario": "LEO", "clave": CLAVE_PABLO, "rol": "stock"}, 422),
+        ({"usuario": "pablo", "clave": "corta", "rol": "stock"}, 422),
+        ({"usuario": "pablo", "clave": "pablo-pablo", "rol": "stock"}, 200),
+        ({"usuario": "pablo", "clave": "pablo", "rol": "stock"}, 422),
+        ({"usuario": "pa blo", "clave": CLAVE_PABLO, "rol": "stock"}, 422),
+        ({"usuario": "ab", "clave": CLAVE_PABLO, "rol": "stock"}, 422),
+        ({"usuario": "pablo", "clave": CLAVE_PABLO, "rol": "duenio"}, 422),
+        ({"usuario": "pablo", "clave": CLAVE_PABLO, "rol": "inventado"}, 422),
+    ],
+)
+def test_altas_que_no_se_aceptan(sesion, cuerpo, estado):
+    assert sesion.post("/admin/api/usuarios", json=cuerpo, headers=H).status_code == estado
+
+
+def test_no_se_repite_un_usuario(sesion):
+    persona(sesion)
+
+    assert sesion.post("/admin/api/usuarios", json={"usuario": "PABLO", "clave": CLAVE_PABLO, "rol": "stock"}, headers=H).status_code == 409
+
+
+def test_el_duenio_no_se_toca_desde_la_lista(sesion):
+    assert sesion.put("/admin/api/usuarios/leo", json={"activo": False}, headers=H).status_code == 422
+    assert sesion.delete("/admin/api/usuarios/leo", headers=H).status_code == 422
+    assert sesion.put("/admin/api/usuarios/nadie", json={"activo": False}, headers=H).status_code == 404
+
+
+def test_la_cuenta_del_duenio_muestra_personas_roles_y_conexiones(sesion):
+    persona(sesion, "pablo", "stock")
+    persona(sesion, "lucia", "todo")
+
+    d = sesion.get("/admin/api/cuenta").json()
+
+    assert d["esDuenio"] is True and d["rol"] == "duenio"
+    assert [p["usuario"] for p in d["personas"]] == ["pablo", "lucia"] and "clave" not in str(d["personas"])
+    assert [r["id"] for r in d["roles"]] == ["todo", "stock_web", "stock"]
+    estados = {c["id"]: c["estado"] for c in d["conexiones"]}
+    assert estados == {"tiendanube": "ok", "agente": "ok", "chatwoot": "ok", "whatsapp": "pendiente", "correo": "ok"}
+    assert d["avisosPara"] == "duenio@ejemplo.com"
+
+
+def test_la_cuenta_de_una_persona_no_muestra_a_las_demas_ni_el_mail(sesion, cliente):
+    persona(sesion)
+
+    d = entrar_como(cliente).get("/admin/api/cuenta").json()
+
+    assert d["esDuenio"] is False and "personas" not in d and "avisosPara" not in d and "duenio@ejemplo.com" not in str(d)
+
+
+def test_si_el_agente_no_contesta_la_cuenta_lo_dice(sesion, agente):
+    agente.caido = True
+
+    estados = {c["id"]: c["estado"] for c in sesion.get("/admin/api/cuenta").json()["conexiones"]}
+
+    assert estados["agente"] == "error" and estados["chatwoot"] == "error"
+
+
+def test_una_persona_cambia_su_clave(sesion, cliente):
+    persona(sesion)
+    otro = entrar_como(cliente)
+
+    r = otro.post("/admin/api/cuenta/clave", json={"actual": CLAVE_PABLO, "nueva": "clave-nueva-de-pablo"}, headers=H)
+
+    assert r.status_code == 200
+    assert TestClient(cliente.app).post("/admin/api/login", json={"usuario": "pablo", "clave": CLAVE_PABLO}, headers=H).status_code == 401
+    assert entrar_como(cliente, clave="clave-nueva-de-pablo").get("/admin/api/stock").status_code == 200
+
+
+@pytest.mark.parametrize(
+    "actual, nueva",
+    [("equivocada-123", "clave-nueva-de-pablo"), (CLAVE_PABLO, "corta"), (CLAVE_PABLO, CLAVE_PABLO), (CLAVE_PABLO, "pablo"), (CLAVE_PABLO, "x" * 201)],
+)
+def test_cambios_de_clave_que_no_se_aceptan(sesion, cliente, actual, nueva):
+    persona(sesion)
+    r = entrar_como(cliente).post("/admin/api/cuenta/clave", json={"actual": actual, "nueva": nueva}, headers=H)
+
+    assert r.status_code == 422
+
+
+def test_el_duenio_cambia_su_clave_y_la_de_arranque_deja_de_valer(sesion, cliente):
+    r = sesion.post("/admin/api/cuenta/clave", json={"actual": CLAVE, "nueva": "la-clave-nueva-del-duenio"}, headers=H)
+
+    assert r.status_code == 200
+    nuevo = TestClient(cliente.app)
+    assert nuevo.post("/admin/api/login", json={"usuario": "leo", "clave": CLAVE}, headers=H).status_code == 401
+    assert nuevo.post("/admin/api/login", json={"usuario": "leo", "clave": "la-clave-nueva-del-duenio"}, headers=H).status_code == 200
+
+
+def test_con_restablecer_vuelve_a_valer_la_clave_de_arranque(sesion, cliente, monkeypatch):
+    sesion.post("/admin/api/cuenta/clave", json={"actual": CLAVE, "nueva": "la-clave-nueva-del-duenio"}, headers=H)
+    monkeypatch.setattr(acceso, "RESTABLECER", True)
+
+    assert TestClient(cliente.app).post("/admin/api/login", json={"usuario": "leo", "clave": CLAVE}, headers=H).status_code == 200
+
+
+def test_el_ingreso_queda_anotado(sesion, cliente, alm):
+    persona(sesion)
+
+    entrar_como(cliente)
+
+    assert alm.usuario("pablo")["ultimo_ingreso"] is not None
+    assert alm.usuario("leo")["ultimo_ingreso"] is not None
+
+
+def test_las_altas_y_bajas_quedan_en_el_historial(sesion, memoria):
+    persona(sesion)
+    sesion.put("/admin/api/usuarios/pablo", json={"rol": "todo", "activo": False}, headers=H)
+    sesion.delete("/admin/api/usuarios/pablo", headers=H)
+
+    detalle = [e["talle"] for e in memoria.filas if e["producto"] == "Personas con acceso"]
+
+    assert detalle[0].startswith("alta de pablo") and "desactivada" in detalle[1] and detalle[2] == "baja de pablo"
+    assert CLAVE_PABLO not in str(memoria.filas)
+
+
+# -- Avisos por mail --------------------------------------------------------------------------
+
+
+def test_los_avisos_arrancan_prendidos_con_umbral_de_dos(sesion):
+    assert sesion.get("/admin/api/avisos").json() == {"pedidoNuevo": True, "pocasUnidades": True, "umbral": 2, "modelosNuevos": True, "fallasDeLaTienda": True}
+
+
+def test_los_avisos_se_configuran(sesion, memoria):
+    r = sesion.put("/admin/api/avisos", json={"pedidoNuevo": False, "pocasUnidades": True, "umbral": 5, "modelosNuevos": True, "fallasDeLaTienda": True}, headers=H)
+
+    assert r.status_code == 200 and set(r.json()["cambios"]) == {"pedido nuevo", "umbral"}
+    assert sesion.get("/admin/api/avisos").json()["umbral"] == 5
+    assert memoria.filas[-1]["producto"] == "Avisos por mail"
+
+
+@pytest.mark.parametrize("cambios", [{"umbral": -1}, {"umbral": 101}])
+def test_avisos_que_no_se_aceptan(sesion, cambios):
+    assert sesion.put("/admin/api/avisos", json=cambios, headers=H).status_code == 422
+
+
+def test_el_mail_de_prueba_lo_manda_el_agente(sesion):
+    assert sesion.post("/admin/api/avisos/probar", headers=H).json() == {"ok": True, "para": "duenio@ejemplo.com"}
+
+
+def test_al_bajar_un_modelo_al_umbral_se_avisa_una_vez(sesion, alm, agente):
+    sesion.get("/admin/api/stock")  # la planilla trae los nombres
+    sesion.post("/admin/api/stock/aplicar", json={"cambios": [cambio(alm, 1, "M", 1), cambio(alm, 1, "L", 0)]}, headers=H)  # el modelo 1 tenía 5: queda en 1
+    asunto, cuerpo, tipo = agente.avisos[0]
+
+    assert len(agente.avisos) == 1 and "pocas unidades" in asunto.lower() and "Boca Juniors" in cuerpo and "1 u." in cuerpo
+
+
+def test_si_ya_estaba_bajo_el_umbral_no_se_vuelve_a_avisar(sesion, alm, agente):
+    sesion.post("/admin/api/stock/aplicar", json={"cambios": [cambio(alm, 1, "M", 0), cambio(alm, 1, "L", 1)]}, headers=H)
+    avisos_antes = len(agente.avisos)
+
+    sesion.post("/admin/api/stock/aplicar", json={"cambios": [cambio(alm, 1, "L", 0)]}, headers=H)
+
+    assert avisos_antes == 1 and len(agente.avisos) == 1
+
+
+def test_un_cambio_que_no_baja_al_umbral_no_avisa(sesion, alm, agente):
+    sesion.post("/admin/api/stock/aplicar", json={"cambios": [cambio(alm, 1, "M", 4)]}, headers=H)
+
+    assert agente.avisos == []
+
+
+def test_confirmar_un_pedido_que_deja_pocas_unidades_avisa(sesion, alm, agente):
+    pedido(alm, "A-AAAAA", (1, "M", 2), (1, "L", 3))  # el modelo tiene 5: queda en 0
+
+    sesion.post("/admin/api/pedidos/A-AAAAA/confirmar", headers=H)
+
+    assert len(agente.avisos) == 1 and "agotado" in agente.avisos[0][1]
+
+
+def test_con_el_aviso_apagado_no_sale_nada(sesion, alm, agente):
+    sesion.put("/admin/api/avisos", json={"pedidoNuevo": True, "pocasUnidades": False, "umbral": 2, "modelosNuevos": True, "fallasDeLaTienda": True}, headers=H)
+
+    sesion.post("/admin/api/stock/aplicar", json={"cambios": [cambio(alm, 1, "M", 0), cambio(alm, 1, "L", 0)]}, headers=H)
+
+    assert agente.avisos == []
+
+
+def test_el_umbral_se_puede_subir(sesion, alm, agente):
+    sesion.put("/admin/api/avisos", json={"pedidoNuevo": True, "pocasUnidades": True, "umbral": 4, "modelosNuevos": True, "fallasDeLaTienda": True}, headers=H)
+
+    sesion.post("/admin/api/stock/aplicar", json={"cambios": [cambio(alm, 1, "M", 2), cambio(alm, 1, "L", 2)]}, headers=H)
+
+    assert len(agente.avisos) == 1 and "4 unidades o menos" in agente.avisos[0][1]
+
+
+def test_un_aviso_que_falla_no_rompe_el_guardado(sesion, alm, agente, monkeypatch):
+    def cae(*a):
+        raise agente_cliente.ErrorDelAgente("sin mail")
+
+    monkeypatch.setattr(agente, "avisar", cae)
+
+    r = sesion.post("/admin/api/stock/aplicar", json={"cambios": [cambio(alm, 1, "M", 0), cambio(alm, 1, "L", 0)]}, headers=H)
+
+    assert r.status_code == 200 and fila(alm, 1, "M")["cantidad"] == 0

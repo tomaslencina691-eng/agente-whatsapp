@@ -363,3 +363,99 @@ def test_pedidos_de_prueba_mal_armados_no_llegan_al_modelo(secreto, cuerpo):
         r = web.post("/panel/probar", headers=H, json=cuerpo)
 
     assert r.status_code == 400 and agente.modelo.entradas == []
+
+
+# -- Avisos del panel por mail ----------------------------------------------------------------
+
+
+def test_el_estado_dice_con_que_esta_conectado(secreto):
+    from test_chatwoot import AvisosFalsos
+
+    with cliente(ChatwootFalso(), agente_falso(["x"]), avisos=AvisosFalsos()) as web:
+        c = web.get("/panel/estado", headers=H).json()["conexiones"]
+
+    assert set(c) == {"chatwoot", "whatsapp", "avisos", "avisos_para"}
+    assert c["avisos"] is True and c["avisos_para"] == "duenio@ejemplo.com" and c["whatsapp"] is False
+
+
+def test_el_panel_manda_un_aviso_por_el_mismo_camino_que_los_del_agente(secreto):
+    from test_chatwoot import AvisosFalsos
+
+    avisos = AvisosFalsos()
+
+    with cliente(ChatwootFalso(), agente_falso(["x"]), avisos=avisos) as web:
+        r = web.post("/panel/avisar", headers=H, json={"asunto": "Pedido nuevo A-AAAAA", "cuerpo": "Entró un pedido.", "tipo": "pedido:A-AAAAA"})
+
+    assert r.status_code == 200 and r.json() == {"enviado": True, "activos": True}
+    assert avisos.mandados == [("Pedido nuevo A-AAAAA", "Entró un pedido.")]
+
+
+def test_un_aviso_repetido_no_sale_otra_vez(secreto):
+    from test_chatwoot import AvisosFalsos
+
+    avisos = AvisosFalsos()
+    cuerpo = {"asunto": "Quedan pocas unidades", "cuerpo": "Boca: 1 u.", "tipo": "poco-stock:Boca"}
+
+    with cliente(ChatwootFalso(), agente_falso(["x"]), avisos=avisos) as web:
+        primero = web.post("/panel/avisar", headers=H, json=cuerpo).json()["enviado"]
+        segundo = web.post("/panel/avisar", headers=H, json=cuerpo).json()["enviado"]
+
+    assert (primero, segundo) == (True, False) and len(avisos.mandados) == 1
+
+
+@pytest.mark.parametrize("cuerpo", [{}, {"asunto": "", "cuerpo": "x", "tipo": "t"}, {"asunto": "x", "cuerpo": "", "tipo": "t"}, {"asunto": "x", "cuerpo": "y", "tipo": ""}])
+def test_avisos_mal_armados_no_salen(secreto, cuerpo):
+    from test_chatwoot import AvisosFalsos
+
+    avisos = AvisosFalsos()
+
+    with cliente(ChatwootFalso(), agente_falso(["x"]), avisos=avisos) as web:
+        r = web.post("/panel/avisar", headers=H, json=cuerpo)
+
+    assert r.status_code == 400 and avisos.mandados == []
+
+
+def test_sin_secreto_no_se_puede_mandar_avisos(secreto):
+    from test_chatwoot import AvisosFalsos
+
+    avisos = AvisosFalsos()
+
+    with cliente(ChatwootFalso(), agente_falso(["x"]), avisos=avisos) as web:
+        assert web.post("/panel/avisar", json={"asunto": "a", "cuerpo": "b", "tipo": "c"}).status_code == 401
+        assert web.post("/panel/mail-de-prueba").status_code == 401
+
+    assert avisos.mandados == []
+
+
+def test_el_mail_de_prueba_sale_y_dice_a_quien(secreto):
+    from test_chatwoot import AvisosFalsos
+
+    avisos = AvisosFalsos()
+
+    with cliente(ChatwootFalso(), agente_falso(["x"]), avisos=avisos) as web:
+        r = web.post("/panel/mail-de-prueba", headers=H).json()
+
+    assert r == {"ok": True, "para": "duenio@ejemplo.com"} and len(avisos.mandados) == 1
+
+
+def test_si_el_mail_no_esta_configurado_la_prueba_dice_que_falta(secreto):
+    from agente.avisos import Avisos
+
+    with cliente(ChatwootFalso(), agente_falso(["x"]), avisos=Avisos()) as web:
+        r = web.post("/panel/mail-de-prueba", headers=H).json()
+
+    assert r["ok"] is False and "Faltan datos del mail" in r["error"]
+
+
+def test_el_mail_de_avisos_guardado_en_el_panel_rige_tambien_para_los_avisos_del_panel(secreto):
+    from test_chatwoot import AvisosFalsos
+
+    avisos = AvisosFalsos()
+    agente = agente_falso(["x"])
+    agente.panel = PanelFalso(ajustes={"avisosEmail": "nuevo@ejemplo.com"})
+
+    with cliente(ChatwootFalso(), agente, avisos=avisos) as web:
+        antes = web.get("/panel/estado", headers=H).json()["conexiones"]["avisos_para"]
+        prueba = web.post("/panel/mail-de-prueba", headers=H).json()
+
+    assert antes == "nuevo@ejemplo.com" and prueba == {"ok": True, "para": "nuevo@ejemplo.com"}

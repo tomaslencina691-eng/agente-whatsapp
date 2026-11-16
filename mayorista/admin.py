@@ -31,6 +31,7 @@ import acceso
 import agente_cliente
 import ajustes
 import almacen
+import avisos as avisos_mod
 import historial as hist
 import tn
 
@@ -51,6 +52,31 @@ _foto_de_producto: dict[int, str] = {}
 class Login(BaseModel):
     usuario: str = Field(max_length=100)
     clave: str = Field(max_length=200)
+
+
+class CambiarClave(BaseModel):
+    actual: str = Field(max_length=200)
+    nueva: str = Field(max_length=200)
+
+
+class NuevaPersona(BaseModel):
+    usuario: str = Field(pattern=r"^[A-Za-z0-9._-]{3,30}$")
+    clave: str = Field(max_length=200)
+    rol: Literal["todo", "stock_web", "stock"]
+
+
+class CambiosDePersona(BaseModel):
+    rol: Literal["todo", "stock_web", "stock"] | None = None
+    activo: bool | None = None
+    clave: str | None = Field(default=None, max_length=200)
+
+
+class ConfigDeAvisos(BaseModel):
+    pedidoNuevo: bool = True
+    pocasUnidades: bool = True
+    umbral: int = Field(default=2, ge=0, le=100)
+    modelosNuevos: bool = True
+    fallasDeLaTienda: bool = True
 
 
 class Cambio(BaseModel):
@@ -215,6 +241,11 @@ ETIQUETAS_DE_AJUSTES = {
 }
 
 
+def modelos_nuevos(productos: list[dict], incluidos: set[int], ignorados: set[int]) -> list[dict]:
+    """Lo que la tienda tiene (publicado, con foto y con stock contado) y el mayorista no incluyó ni ignoró."""
+    return [{"id": p["id"], "nombre": _nombre_de(p, p["id"])} for p in productos if es_elegible(p) and p["id"] not in incluidos and p["id"] not in ignorados]
+
+
 def crear_router(
     historial,
     invalidar_cache: Callable[[], None],
@@ -222,6 +253,7 @@ def crear_router(
     categorias_base: list[dict] | None = None,
     web_defecto: Callable[[], dict] | None = None,
     agente_=None,
+    avisador=None,
 ) -> APIRouter:
     router = APIRouter(prefix="/admin/api")
     nombres: dict[int, str] = {}  # los últimos nombres vistos, para el historial
@@ -234,18 +266,36 @@ def crear_router(
         if not configurado():
             raise HTTPException(503, "El panel no está configurado en el servidor.")
 
+    def quien_es(request: Request) -> dict | None:
+        """La persona de la sesión y qué puede hacer, según la base en este momento."""
+        return acceso.identidad(almacen_, acceso.leer_sesion(request.cookies.get(acceso.COOKIE)))
+
     def usuario_actual(request: Request, _=Depends(exigir_panel)) -> str:
-        usuario = acceso.leer_sesion(request.cookies.get(acceso.COOKIE))
-        if not usuario:
+        yo = quien_es(request)
+        if not yo:
             raise HTTPException(401, "Iniciá sesión.")
         # Los cambios exigen un header propio: un sitio ajeno no puede mandarlo
         # desde el navegador sin permiso, y así nadie guarda cosas por vos.
         if request.method not in ("GET", "HEAD") and request.headers.get("x-mayorista") != "1":
             raise HTTPException(403, "Pedido no permitido.")
-        return usuario
+        # Cada parte del panel pide su permiso (ver acceso.grupo_de): quitárselo a alguien rige ya.
+        if acceso.grupo_de(request.url.path) not in yo["permisos"]:
+            raise HTTPException(403, "No tenés permiso para hacer esto.")
+        return yo["usuario"]
 
     def nombre(id: int) -> str:
         return nombres.get(id) or f"Modelo {id}"
+
+    def avisar_poco_stock(antes: list[dict], modelos: set[int]) -> None:
+        """Avisa por mail los modelos que, con este cambio, llegaron al umbral de unidades o menos."""
+        if avisador is None:
+            return
+        try:
+            cruzaron = avisos_mod.cruzaron_el_umbral(antes, almacen_.filas(modelos), avisador.config()["umbral"])
+            if cruzaron:
+                avisador.pocas_unidades([(nombre(p), n) for p, n in cruzaron])
+        except Exception:  # noqa: BLE001
+            log.exception("No se pudo revisar si quedaron pocas unidades")
 
     def anotar(lote: str, usuario: str, entradas: list[dict]) -> None:
         """Lo que ya se aplicó no se deshace por un fallo del historial: se avisa en el log."""
@@ -261,27 +311,33 @@ def crear_router(
         """Para que la página sepa si mostrar el login, sin dar error."""
         if not configurado():
             return {"configurado": False, "usuario": None}
-        return {"configurado": True, "usuario": acceso.leer_sesion(request.cookies.get(acceso.COOKIE))}
+        yo = quien_es(request)
+        return {"configurado": True, "usuario": yo["usuario"] if yo else None, "rol": yo["rol"] if yo else None, "permisos": yo["permisos"] if yo else []}
 
     @router.post("/login")
     def login(datos: Login, request: Request, response: Response, _=Depends(exigir_panel)) -> dict:
         ip = (request.headers.get("x-forwarded-for") or (request.client.host if request.client else "")).split(",")[0].strip()
         if acceso.bloqueado(ip):
             raise HTTPException(429, "Demasiados intentos. Probá de nuevo en unos minutos.")
-        if not acceso.credenciales_validas(datos.usuario.strip(), datos.clave):
+        persona = acceso.autenticar(almacen_, datos.usuario, datos.clave)
+        if not persona:
             acceso.anotar_fallo(ip)
             raise HTTPException(401, "Usuario o clave incorrectos.")
         acceso.limpiar_fallos(ip)
+        try:
+            almacen_.anotar_ingreso(acceso.normalizar_usuario(persona["usuario"]), persona["rol"])
+        except Exception:  # noqa: BLE001
+            log.exception("No se pudo anotar el ingreso de %s", persona["usuario"])
         response.set_cookie(
             acceso.COOKIE,
-            acceso.crear_sesion(acceso.USUARIO),
+            acceso.crear_sesion(persona["usuario"]),
             max_age=acceso.DURACION_SEGUNDOS,
             httponly=True,
             samesite="strict",
             secure=request.headers.get("x-forwarded-proto", request.url.scheme) == "https",
             path="/",
         )
-        return {"usuario": acceso.USUARIO}
+        return {"usuario": persona["usuario"], "rol": persona["rol"], "permisos": acceso.ROLES[persona["rol"]]}
 
     @router.post("/logout")
     def logout(response: Response) -> dict:
@@ -398,6 +454,7 @@ def crear_router(
 
         lote = hist.lote_nuevo()
         anotar(lote, usuario, entradas)
+        avisar_poco_stock(filas, {c.producto for c in cambios})
         return {"lote": lote, "aplicados": len(stocks), "creados": len(altas)}
 
     @router.post("/stock/aplicar")
@@ -709,6 +766,136 @@ def crear_router(
         except agente_cliente.ErrorDelAgente as e:
             raise HTTPException(502, str(e)) from None
 
+    # -- Mi cuenta, personas con acceso y avisos --
+
+    def _persona_publica(u: dict) -> dict:
+        return {"usuario": u["usuario"], "rol": u["rol"], "rolNombre": acceso.NOMBRES_DE_ROLES.get(u["rol"], u["rol"]), "activo": u["activo"], "creado": u["creado"], "ultimoIngreso": u["ultimo_ingreso"]}
+
+    def _conexiones(estado: dict | None, error: str, es_duenio: bool) -> list[dict]:
+        c = (estado or {}).get("conexiones") or {}
+        tienda = tn.configurado()
+        return [
+            {"id": "tiendanube", "nombre": "Tiendanube", "estado": "ok" if tienda else "pendiente", "detalle": "Solo lectura: modelos, fotos y categorías." if tienda else "Faltan las claves de la tienda."},
+            {"id": "agente", "nombre": "Agente de WhatsApp", "estado": "ok" if estado else "error", "detalle": f"{estado['proveedor']} · {estado['modelo']}" if estado else error},
+            {"id": "chatwoot", "nombre": "Chatwoot (bandeja de chats)", "estado": "ok" if c.get("chatwoot") else ("pendiente" if estado else "error"), "detalle": "Conectado." if c.get("chatwoot") else "El agente no tiene los datos de Chatwoot."},
+            {"id": "whatsapp", "nombre": "WhatsApp (Meta)", "estado": "ok" if c.get("whatsapp") else "pendiente",
+             "detalle": "Datos de Meta cargados (visto azul y «escribiendo...»)." if c.get("whatsapp") else "Falta conectar el número en Meta: tarjeta, verificación del negocio y webhook."},
+            {"id": "correo", "nombre": "Mail de avisos", "estado": "ok" if c.get("avisos") else "pendiente",
+             "detalle": (f"Los avisos llegan a {c.get('avisos_para')}." if es_duenio else "Configurado.") if c.get("avisos") else "Falta configurar el mail del agente (Gmail) y el «Mail de avisos» de la pestaña Agente."},
+        ]
+
+    @router.get("/cuenta")
+    def cuenta_ver(request: Request, usuario: str = Depends(usuario_actual)) -> dict:
+        yo = quien_es(request)
+        es_duenio = "administrar" in yo["permisos"]
+        estado, error = _estado_del_agente()
+        salida = {
+            "usuario": yo["usuario"], "rol": yo["rol"], "rolNombre": acceso.NOMBRES_DE_ROLES[yo["rol"]], "permisos": yo["permisos"], "esDuenio": es_duenio,
+            "conexiones": _conexiones(estado, error, es_duenio),
+        }
+        if es_duenio:
+            salida["personas"] = [_persona_publica(u) for u in almacen_.usuarios() if u["rol"] in acceso.ROLES_ASIGNABLES]
+            salida["roles"] = [{"id": r, "nombre": acceso.NOMBRES_DE_ROLES[r]} for r in acceso.ROLES_ASIGNABLES]
+            salida["avisos"] = avisador.config() if avisador else dict(avisos_mod.DEFECTO)
+            salida["avisosPara"] = ((estado or {}).get("conexiones") or {}).get("avisos_para", "")
+        return salida
+
+    @router.post("/cuenta/clave")
+    def cuenta_cambiar_clave(datos: CambiarClave, request: Request, usuario: str = Depends(usuario_actual)) -> dict:
+        yo = quien_es(request)
+        if not acceso.autenticar(almacen_, yo["usuario"], datos.actual):
+            raise HTTPException(422, "La clave actual no es correcta.")
+        if datos.nueva == datos.actual:
+            raise HTTPException(422, "La clave nueva es igual a la actual.")
+        problema = acceso.problema_de_clave(datos.nueva, yo["usuario"])
+        if problema:
+            raise HTTPException(422, problema)
+        nueva = acceso.hashear(datos.nueva)
+        if yo["rol"] == "duenio":
+            almacen_.fijar_clave_del_duenio(acceso.normalizar_usuario(yo["usuario"]), nueva)
+        else:
+            almacen_.cambiar_usuario(acceso.normalizar_usuario(yo["usuario"]), clave_hash=nueva)
+        anotar(hist.lote_nuevo(), yo["usuario"], [{"accion": "config", "producto_id": 0, "producto": "Cuenta", "talle": "cambió su clave", "antes": None, "despues": 1}])
+        return {"guardado": True}
+
+    @router.post("/usuarios")
+    def persona_crear(datos: NuevaPersona, usuario: str = Depends(usuario_actual)) -> dict:
+        nombre_ = acceso.normalizar_usuario(datos.usuario)
+        if nombre_ == acceso.normalizar_usuario(acceso.USUARIO):
+            raise HTTPException(422, "Ese usuario está reservado.")
+        problema = acceso.problema_de_clave(datos.clave, nombre_)
+        if problema:
+            raise HTTPException(422, problema)
+        if not almacen_.crear_usuario(nombre_, acceso.hashear(datos.clave), datos.rol, usuario):
+            raise HTTPException(409, "Ya hay una persona con ese usuario.")
+        anotar(hist.lote_nuevo(), usuario, [{"accion": "config", "producto_id": 0, "producto": "Personas con acceso", "talle": f"alta de {nombre_} ({acceso.NOMBRES_DE_ROLES[datos.rol]})", "antes": None, "despues": 1}])
+        return _persona_publica(almacen_.usuario(nombre_))
+
+    def _persona_ajena(nombre_: str) -> dict:
+        nombre_ = acceso.normalizar_usuario(nombre_)
+        if nombre_ == acceso.normalizar_usuario(acceso.USUARIO):
+            raise HTTPException(422, "El dueño no se modifica desde acá.")
+        u = almacen_.usuario(nombre_)
+        if u is None or u["rol"] not in acceso.ROLES_ASIGNABLES:
+            raise HTTPException(404, "No existe esa persona.")
+        return u
+
+    @router.put("/usuarios/{nombre_}")
+    def persona_cambiar(nombre_: str, datos: CambiosDePersona, usuario: str = Depends(usuario_actual)) -> dict:
+        u = _persona_ajena(nombre_)
+        campos: dict = {}
+        cambios: list[str] = []
+        if datos.rol is not None and datos.rol != u["rol"]:
+            campos["rol"] = datos.rol
+            cambios.append(f"rol: {acceso.NOMBRES_DE_ROLES[datos.rol]}")
+        if datos.activo is not None and datos.activo != u["activo"]:
+            campos["activo"] = datos.activo
+            cambios.append("activada" if datos.activo else "desactivada")
+        if datos.clave:
+            problema = acceso.problema_de_clave(datos.clave, u["usuario"])
+            if problema:
+                raise HTTPException(422, problema)
+            campos["clave_hash"] = acceso.hashear(datos.clave)
+            cambios.append("clave nueva")
+        if campos:
+            almacen_.cambiar_usuario(u["usuario"], **campos)
+            anotar(hist.lote_nuevo(), usuario, [{"accion": "config", "producto_id": 0, "producto": "Personas con acceso", "talle": f"{u['usuario']}: " + ", ".join(cambios), "antes": None, "despues": len(cambios)}])
+        return _persona_publica(almacen_.usuario(u["usuario"]))
+
+    @router.delete("/usuarios/{nombre_}")
+    def persona_quitar(nombre_: str, usuario: str = Depends(usuario_actual)) -> dict:
+        u = _persona_ajena(nombre_)
+        almacen_.borrar_usuario(u["usuario"])
+        anotar(hist.lote_nuevo(), usuario, [{"accion": "config", "producto_id": 0, "producto": "Personas con acceso", "talle": f"baja de {u['usuario']}", "antes": None, "despues": 0}])
+        return {"quitada": True}
+
+    @router.get("/avisos")
+    def avisos_ver(usuario: str = Depends(usuario_actual)) -> dict:
+        return avisador.config() if avisador else dict(avisos_mod.DEFECTO)
+
+    @router.put("/avisos")
+    def avisos_guardar(datos: ConfigDeAvisos, usuario: str = Depends(usuario_actual)) -> dict:
+        antes = avisador.config() if avisador else dict(avisos_mod.DEFECTO)
+        nuevo = datos.model_dump()
+        almacen_.guardar_config("avisos", nuevo)
+        if avisador:
+            avisador.invalidar()
+        etiquetas = {"pedidoNuevo": "pedido nuevo", "pocasUnidades": "pocas unidades", "umbral": "umbral", "modelosNuevos": "modelos nuevos", "fallasDeLaTienda": "fallas de la tienda"}
+        cambiados = [etiquetas[k] for k in etiquetas if antes.get(k) != nuevo.get(k)]
+        if cambiados:
+            anotar(hist.lote_nuevo(), usuario, [{"accion": "config", "producto_id": 0, "producto": "Avisos por mail", "talle": ", ".join(cambiados), "antes": None, "despues": len(cambiados)}])
+        return {"guardado": True, "cambios": cambiados}
+
+    @router.post("/avisos/probar")
+    def avisos_probar(usuario: str = Depends(usuario_actual)) -> dict:
+        """Manda un mail de prueba al «Mail de avisos» del agente y dice si salió (o por qué no)."""
+        if agente_ is None:
+            raise HTTPException(503, "El panel no está conectado al agente.")
+        try:
+            return agente_.mail_de_prueba()
+        except agente_cliente.ErrorDelAgente as e:
+            raise HTTPException(502, str(e)) from None
+
     # -- Pedidos --
 
     def _vista_de_pedido(p: dict, stock_actual: dict[tuple[int, str], int]) -> dict:
@@ -762,11 +949,15 @@ def crear_router(
 
     @router.post("/pedidos/{codigo}/confirmar")
     def pedido_confirmar(codigo: str, usuario: str = Depends(usuario_actual)) -> dict:
+        previo = almacen_.pedido(codigo)
+        modelos = {i["producto"] for i in previo["datos"]["items"]} if previo else set()
+        antes = almacen_.filas(modelos) if modelos else []
         try:
             movs = almacen_.confirmar(codigo)
         except almacen.ErrorDeAlmacen as e:
             raise _error_de_pedido(e) from None
         anotar(hist.lote_nuevo(), usuario, _movimientos(codigo, "pedido", movs))
+        avisar_poco_stock(antes, modelos)
         return {"codigo": codigo, "estado": "confirmado", "unidades": sum(m["antes"] - m["despues"] for m in movs)}
 
     @router.post("/pedidos/{codigo}/cancelar")

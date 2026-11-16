@@ -26,6 +26,7 @@ Qué hace este servidor, en cuatro cosas:
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import html
 import json
@@ -46,6 +47,7 @@ import admin
 import agente_cliente
 import ajustes
 import almacen
+import avisos
 import historial as hist
 import tn
 
@@ -273,6 +275,7 @@ def _actualizar_si_hace_falta() -> None:
             productos = _traer_productos()
         except Exception as e:  # noqa: BLE001
             log.warning("No se pudo leer Tiendanube: %s", e)
+            _avisador.fallo_la_tienda(f"{type(e).__name__}: {e}")
             if _cache["productos"] is None:
                 raise
             # Hay una versión anterior: mejor mostrarla que dejar la web caída.
@@ -306,6 +309,9 @@ def precio_unidad(unidades: int) -> int | None:
 
 _historial = hist.crear()
 _almacen = almacen.crear()
+_agente = agente_cliente.crear()
+# Los mails de aviso (un pedido nuevo, pocas unidades...): se los pide al agente, que tiene el correo.
+_avisador = avisos.Avisador(_almacen, _agente)
 
 
 def _invalidar_cache() -> None:
@@ -329,20 +335,52 @@ def _cargar_stock_inicial() -> None:
         log.exception("No se pudo copiar el stock inicial de Tiendanube.")
 
 
+def _revisar_modelos_nuevos() -> None:
+    """Avisa por mail si en la tienda aparecieron modelos que el mayorista no conoce.
+
+    La primera vez no avisa: lo que ya hay se toma como conocido. Después, solo los que aparecen.
+    """
+    if _almacen is None or not tn.configurado():
+        return
+    productos = _traer_productos()
+    estado = _almacen.config("avisos_estado") or {}
+    nuevos = admin.modelos_nuevos(productos, _almacen.incluidos(), {i["producto_id"] for i in _almacen.ignorados()})
+    if "nuevosAvisados" in estado:
+        sin_avisar = [n["nombre"] for n in nuevos if n["id"] not in set(estado["nuevosAvisados"])]
+        if sin_avisar:
+            _avisador.modelos_nuevos(sin_avisar)
+    _almacen.guardar_config("avisos_estado", {**estado, "nuevosAvisados": [n["id"] for n in nuevos]})
+
+
+async def _vigilar_la_tienda() -> None:
+    """Cada 3 horas mira si hay modelos nuevos en la tienda (el primer vistazo, a los 2 minutos de arrancar)."""
+    await asyncio.sleep(120)
+    while True:
+        try:
+            await asyncio.to_thread(_revisar_modelos_nuevos)
+        except Exception:  # noqa: BLE001
+            log.exception("No se pudo revisar si hay modelos nuevos en la tienda")
+        await asyncio.sleep(3 * 3600)
+
+
 @asynccontextmanager
 async def _vida(_app: FastAPI):
     # Crean las tablas; si no hay base, el contenedor falla a la vista.
     if _historial:
         _historial.preparar()
+    vigilante = None
     if _almacen:
         _almacen.preparar()
         if CARGAR_STOCK_INICIAL:
             _cargar_stock_inicial()
+        vigilante = asyncio.create_task(_vigilar_la_tienda())
     yield
+    if vigilante:
+        vigilante.cancel()
 
 
 app = FastAPI(title="Mayorista", docs_url=None, redoc_url=None, lifespan=_vida)
-app.include_router(admin.crear_router(_historial, _invalidar_cache, _almacen, CATEGORIAS, _ajustes_de_siempre, agente_cliente.crear()))
+app.include_router(admin.crear_router(_historial, _invalidar_cache, _almacen, CATEGORIAS, _ajustes_de_siempre, _agente, _avisador))
 
 
 @app.middleware("http")
@@ -469,6 +507,8 @@ def api_pedido(datos: PedidoNuevo, request: Request) -> dict:
         unidades,
         precio * unidades if precio else None,
     )
+    if guardado:
+        _avisador.pedido_nuevo(datos.codigo, unidades, precio * unidades if precio else None, datos.nombre.strip(), datos.negocio.strip())
     # Mandar dos veces el mismo código (un doble toque) no duplica nada.
     return {"ok": True, "codigo": datos.codigo, "nuevo": guardado}
 

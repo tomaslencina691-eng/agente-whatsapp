@@ -14,6 +14,7 @@ que corre en producción. Los secretos no están acá: viven en las variables de
 
 ## Qué se configura acá y qué no
 
+- El panel (`app.mayoristasf.digital/admin`) lo maneja el dueño: desde la pestaña «Cuenta» da de alta a su equipo (cada persona con su usuario y clave, y solo ve lo que le corresponde), cambia su clave y elige qué avisos recibir por mail (pedido nuevo, pocas unidades, modelos nuevos en la tienda). Si pierde su clave, en Coolify se pone `ADMIN_RESTABLECER=1` y vuelve a valer la de `ADMIN_CLAVE`.
 - El stock del mayorista es propio (no el de la tienda): se carga en `app.mayoristasf.digital/admin`. De la tienda solo se traen los modelos nuevos.
 - La web mayorista se edita desde el panel (pestaña «Web mayorista»): nombre, logo, color, textos de la portada, número de WhatsApp, mensaje del pedido, precios por cantidad, reglas, aviso, pausa de pedidos y más. Lo que no se tocó rige `mayorista/negocio.json`.
 - `mayorista/negocio.json`: marca, pedido mínimo, precios por cantidad, categorías y condiciones (son los valores de arranque; el panel los pisa).

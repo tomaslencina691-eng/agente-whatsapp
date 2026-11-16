@@ -601,6 +601,12 @@ def crear_app(
 
     # -- Para el panel de administración (solo desde adentro de la red del servidor) -----------
 
+    def mail_del_panel() -> None:
+        """El «Mail de avisos» que se guardó en el panel pisa al del entorno (también para los avisos que pide el panel)."""
+        guardado = str(vivos.ajustes().get("avisosEmail") or "").strip()
+        if guardado:
+            avisos.para = guardado
+
     def panel_autorizado(pedido: Request) -> JSONResponse | None:
         """None si el pedido trae el secreto compartido con el panel; si no, la respuesta de error."""
         esperado = (os.getenv("AGENTE_PANEL_TOKEN") or "").strip()
@@ -618,6 +624,7 @@ def crear_app(
         rechazo = panel_autorizado(pedido)
         if rechazo:
             return rechazo
+        mail_del_panel()
         base = {k: v for k, v in PanelEnVivo().valores(config).items()}  # lo del entorno, sin lo guardado
         return JSONResponse(
             {
@@ -627,8 +634,46 @@ def crear_app(
                 "vivos": vivo(),
                 "prompt_base": leer_prompt(config.prompt_sistema),
                 "variables": list(VARIABLES),
+                # Con qué está conectado: lo muestra la pestaña Cuenta del panel.
+                "conexiones": {
+                    "chatwoot": bool(config.chatwoot_url and config.chatwoot_token),
+                    "whatsapp": con_meta,
+                    "avisos": avisos.activos,
+                    "avisos_para": avisos.para,
+                },
             }
         )
+
+    @app.post("/panel/avisar")
+    async def panel_avisar(pedido: Request) -> JSONResponse:
+        """Manda un mail de aviso del panel (un pedido nuevo, un modelo sin stock...) por el mismo camino que los del agente."""
+        rechazo = panel_autorizado(pedido)
+        if rechazo:
+            return rechazo
+        cuerpo = await _leer_con_tope(pedido)
+        try:
+            datos = json.loads(cuerpo) if cuerpo else {}
+            asunto, texto, tipo = str(datos["asunto"]).strip()[:200], str(datos["cuerpo"]).strip()[:5000], str(datos["tipo"]).strip()[:120]
+        except Exception:
+            return JSONResponse({"error": "esperaba {asunto, cuerpo, tipo}"}, status_code=400)
+        if not asunto or not texto or not tipo:
+            return JSONResponse({"error": "faltan datos del aviso"}, status_code=400)
+        mail_del_panel()
+        enviado = await asyncio.to_thread(avisos.avisar, asunto, texto, "panel:" + tipo)
+        return JSONResponse({"enviado": enviado, "activos": avisos.activos})
+
+    @app.post("/panel/mail-de-prueba")
+    async def panel_mail_de_prueba(pedido: Request) -> JSONResponse:
+        """Un mail de prueba YA, con el error completo si no sale (el que instala necesita ver qué contestó el servidor)."""
+        rechazo = panel_autorizado(pedido)
+        if rechazo:
+            return rechazo
+        mail_del_panel()
+        try:
+            await asyncio.to_thread(avisos.probar)
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": f"{type(e).__name__}: {e}"})
+        return JSONResponse({"ok": True, "para": avisos.para})
 
     @app.post("/panel/probar")
     async def panel_probar(pedido: Request) -> JSONResponse:

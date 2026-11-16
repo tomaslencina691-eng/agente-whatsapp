@@ -51,6 +51,13 @@ class AgenteHTTP:
     def estado(self) -> dict:
         return self._pedir("GET", "/panel/estado")
 
+    def avisar(self, asunto: str, cuerpo: str, tipo: str) -> dict:
+        """Un mail de aviso. El agente agrupa los repetidos (de un tipo, uno por hora como mucho)."""
+        return self._pedir("POST", "/panel/avisar", {"asunto": asunto, "cuerpo": cuerpo, "tipo": tipo})
+
+    def mail_de_prueba(self) -> dict:
+        return self._pedir("POST", "/panel/mail-de-prueba", {}, espera=60)
+
     def probar(self, prompt: str, mensajes: list[dict], datos: dict) -> dict:
         # El modelo puede tardar y usar herramientas: se le da tiempo.
         return self._pedir("POST", "/panel/probar", {"prompt": prompt, "mensajes": mensajes, "datos": datos}, espera=120)

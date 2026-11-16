@@ -647,3 +647,112 @@ def test_un_mensaje_propio_se_arma_con_los_datos():
 
 def test_la_web_y_el_panel_arman_el_mensaje_con_el_mismo_codigo():
     assert funcion_renderizar(PAGINAS[0]) == funcion_renderizar(PAGINAS[1])
+
+
+# -- Avisos por mail desde la web -------------------------------------------------------------
+
+
+class AgenteQueAnota:
+    def __init__(self):
+        self.avisos = []
+
+    def avisar(self, asunto, cuerpo, tipo):
+        self.avisos.append((asunto, cuerpo, tipo))
+        return {"enviado": True}
+
+
+@pytest.fixture
+def con_avisos(monkeypatch, propio):
+    agente = AgenteQueAnota()
+    monkeypatch.setattr(servidor, "_avisador", servidor.avisos.Avisador(propio, agente, sincrono=True))
+    return agente
+
+
+def test_un_pedido_nuevo_avisa_por_mail(cliente, propio, con_avisos):
+    cliente.post("/api/pedido", json=pedido_web(items=[{"producto": 1, "talle": "M", "cantidad": 6}]))
+
+    asunto, cuerpo, tipo = con_avisos.avisos[0]
+
+    assert "A-7K3QX" in asunto and "6 camisetas" in asunto and tipo == "pedido:A-7K3QX"
+    assert "Pablo, Kiosco" in cuerpo and "$168.000" in cuerpo
+
+
+def test_el_mismo_pedido_mandado_dos_veces_avisa_una_sola_vez(cliente, propio, con_avisos):
+    cliente.post("/api/pedido", json=pedido_web())
+    cliente.post("/api/pedido", json=pedido_web())
+
+    assert len(con_avisos.avisos) == 1
+
+
+def test_con_el_aviso_de_pedidos_apagado_no_sale_el_mail(cliente, propio, con_avisos):
+    propio.guardar_config("avisos", {"pedidoNuevo": False})
+    servidor._avisador.invalidar()
+
+    cliente.post("/api/pedido", json=pedido_web())
+
+    assert con_avisos.avisos == [] and propio.pedido("A-7K3QX") is not None
+
+
+def test_un_pedido_se_guarda_aunque_el_aviso_falle(cliente, propio, monkeypatch):
+    class Roto:
+        def avisar(self, *a):
+            raise OSError("sin agente")
+
+    monkeypatch.setattr(servidor, "_avisador", servidor.avisos.Avisador(propio, Roto(), sincrono=True))
+
+    assert cliente.post("/api/pedido", json=pedido_web()).status_code == 200
+    assert propio.pedido("A-7K3QX") is not None
+
+
+def test_si_tiendanube_se_cae_se_avisa_y_se_sigue_mostrando_lo_ultimo(cliente, monkeypatch, propio, con_avisos):
+    monkeypatch.setattr(servidor, "_traer_productos", lambda: [producto()])
+    propio.cargar([(1, "M", 3)])
+    cliente.get("/api/catalogo")
+    servidor._cache["t"] = time.time() - servidor.CACHE_SEGUNDOS - 1
+
+    def cae():
+        raise OSError("sin conexión")
+
+    monkeypatch.setattr(servidor, "_traer_productos", cae)
+
+    assert len(cliente.get("/api/catalogo").json()["productos"]) == 1
+    assert "no pudo leer Tiendanube" in con_avisos.avisos[0][0] and "sin conexión" in con_avisos.avisos[0][1]
+
+
+def test_la_primera_revision_de_modelos_nuevos_no_avisa_y_toma_lo_que_hay_como_conocido(monkeypatch, propio, con_avisos):
+    monkeypatch.setattr(servidor.tn, "TIENDA", "1")
+    monkeypatch.setattr(servidor.tn, "TOKEN", "t")
+    monkeypatch.setattr(servidor, "_traer_productos", lambda: [producto(id=5, nombre="River")])
+
+    servidor._revisar_modelos_nuevos()
+
+    assert con_avisos.avisos == [] and propio.config("avisos_estado")["nuevosAvisados"] == [5]
+
+
+def test_despues_avisa_solo_de_los_modelos_que_aparecen(monkeypatch, propio, con_avisos):
+    monkeypatch.setattr(servidor.tn, "TIENDA", "1")
+    monkeypatch.setattr(servidor.tn, "TOKEN", "t")
+    tienda = [producto(id=5, nombre="River")]
+    monkeypatch.setattr(servidor, "_traer_productos", lambda: tienda)
+    servidor._revisar_modelos_nuevos()
+    tienda.append(producto(id=6, nombre="Boca Retro"))
+
+    servidor._revisar_modelos_nuevos()
+    servidor._revisar_modelos_nuevos()  # la tercera vez ya los conoce
+
+    assert len(con_avisos.avisos) == 1 and "Boca Retro" in con_avisos.avisos[0][1] and "River" not in con_avisos.avisos[0][1]
+
+
+def test_un_modelo_ignorado_o_incluido_no_cuenta_como_nuevo(monkeypatch, propio, con_avisos):
+    monkeypatch.setattr(servidor.tn, "TIENDA", "1")
+    monkeypatch.setattr(servidor.tn, "TOKEN", "t")
+    tienda = [producto(id=5, nombre="River")]
+    monkeypatch.setattr(servidor, "_traer_productos", lambda: tienda)
+    servidor._revisar_modelos_nuevos()
+    tienda += [producto(id=6, nombre="Ignorado"), producto(id=7, nombre="Incluido")]
+    propio.ignorar(6, "Ignorado")
+    propio.cargar([(7, "M", 1)])
+
+    servidor._revisar_modelos_nuevos()
+
+    assert con_avisos.avisos == []

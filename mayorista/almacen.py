@@ -17,6 +17,8 @@ aplica entero o no se aplica nada.
   · mayorista_config   ajustes que se editan desde el panel (las categorías y los
                        textos de la web, los ajustes del agente); lo que no está
                        acá rige `negocio.json` y las variables de entorno.
+  · mayorista_usuarios las personas con acceso al panel (con la clave guardada con scrypt).
+                       El dueño figura acá solo para anotar su ingreso o si cambió su clave.
   · agente_prompts     las versiones del prompt del agente: una sola está activa
                        y es la que el agente usa (lo lee en vivo, ver panel_db.py).
 """
@@ -66,6 +68,16 @@ CREATE TABLE IF NOT EXISTS agente_prompts (
     activa  BOOLEAN     NOT NULL DEFAULT FALSE
 );
 CREATE UNIQUE INDEX IF NOT EXISTS agente_prompts_activa ON agente_prompts (activa) WHERE activa;
+
+CREATE TABLE IF NOT EXISTS mayorista_usuarios (
+    usuario        TEXT        PRIMARY KEY,
+    clave_hash     TEXT        NOT NULL DEFAULT '',
+    rol            TEXT        NOT NULL,
+    activo         BOOLEAN     NOT NULL DEFAULT TRUE,
+    creado         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    creado_por     TEXT        NOT NULL DEFAULT '',
+    ultimo_ingreso TIMESTAMPTZ
+);
 
 CREATE TABLE IF NOT EXISTS mayorista_config (
     clave       TEXT        PRIMARY KEY,
@@ -139,6 +151,7 @@ class AlmacenMemoria:
         self._ignorados: dict[int, dict] = {}
         self._config: dict[str, object] = {}
         self._prompts: list[dict] = []
+        self._usuarios: dict[str, dict] = {}
 
     def preparar(self) -> None:
         pass
@@ -155,6 +168,46 @@ class AlmacenMemoria:
     def ignorados(self) -> list[dict]:
         with self._candado:
             return [dict(i) for i in sorted(self._ignorados.values(), key=lambda i: i["fecha"], reverse=True)]
+
+    # personas con acceso al panel
+    def usuario(self, usuario: str) -> dict | None:
+        with self._candado:
+            u = self._usuarios.get(usuario)
+            return dict(u) if u else None
+
+    def usuarios(self) -> list[dict]:
+        with self._candado:
+            return [dict(u) for u in sorted(self._usuarios.values(), key=lambda u: u["creado"])]
+
+    def crear_usuario(self, usuario: str, clave_hash: str, rol: str, por: str = "") -> bool:
+        with self._candado:
+            if usuario in self._usuarios:
+                return False
+            self._usuarios[usuario] = {"usuario": usuario, "clave_hash": clave_hash, "rol": rol, "activo": True, "creado": datetime.now(timezone.utc).isoformat(), "creado_por": por, "ultimo_ingreso": None}
+            return True
+
+    def cambiar_usuario(self, usuario: str, **campos) -> bool:
+        """Cambia clave_hash, rol y/o activo. Devuelve False si la persona no existe."""
+        with self._candado:
+            u = self._usuarios.get(usuario)
+            if u is None:
+                return False
+            u.update({k: v for k, v in campos.items() if k in ("clave_hash", "rol", "activo")})
+            return True
+
+    def fijar_clave_del_duenio(self, usuario: str, clave_hash: str) -> None:
+        with self._candado:
+            u = self._usuarios.setdefault(usuario, {"usuario": usuario, "clave_hash": "", "rol": "duenio", "activo": True, "creado": datetime.now(timezone.utc).isoformat(), "creado_por": "", "ultimo_ingreso": None})
+            u["clave_hash"] = clave_hash
+
+    def borrar_usuario(self, usuario: str) -> bool:
+        with self._candado:
+            return self._usuarios.pop(usuario, None) is not None
+
+    def anotar_ingreso(self, usuario: str, rol: str) -> None:
+        with self._candado:
+            u = self._usuarios.setdefault(usuario, {"usuario": usuario, "clave_hash": "", "rol": rol, "activo": True, "creado": datetime.now(timezone.utc).isoformat(), "creado_por": "", "ultimo_ingreso": None})
+            u["ultimo_ingreso"] = datetime.now(timezone.utc).isoformat()
 
     # el prompt del agente
     def prompt_activo(self) -> dict | None:
@@ -350,6 +403,62 @@ class AlmacenPG:
         with self._conectar() as c, c.cursor() as cur:
             cur.execute("SELECT producto_id, nombre, fecha FROM mayorista_ignorados ORDER BY fecha DESC")
             return [{"producto_id": f[0], "nombre": f[1], "fecha": f[2].isoformat()} for f in cur.fetchall()]
+
+    # personas con acceso al panel
+    _CAMPOS_USUARIO = "usuario, clave_hash, rol, activo, creado, creado_por, ultimo_ingreso"
+
+    @staticmethod
+    def _persona(f) -> dict:
+        return {"usuario": f[0], "clave_hash": f[1], "rol": f[2], "activo": f[3], "creado": f[4].isoformat(), "creado_por": f[5], "ultimo_ingreso": f[6].isoformat() if f[6] else None}
+
+    def usuario(self, usuario: str) -> dict | None:
+        with self._conectar() as c, c.cursor() as cur:
+            cur.execute(f"SELECT {self._CAMPOS_USUARIO} FROM mayorista_usuarios WHERE usuario = %s", (usuario,))
+            f = cur.fetchone()
+            return self._persona(f) if f else None
+
+    def usuarios(self) -> list[dict]:
+        with self._conectar() as c, c.cursor() as cur:
+            cur.execute(f"SELECT {self._CAMPOS_USUARIO} FROM mayorista_usuarios ORDER BY creado")
+            return [self._persona(f) for f in cur.fetchall()]
+
+    def crear_usuario(self, usuario: str, clave_hash: str, rol: str, por: str = "") -> bool:
+        with self._conectar() as c, c.cursor() as cur:
+            cur.execute(
+                "INSERT INTO mayorista_usuarios (usuario, clave_hash, rol, creado_por) VALUES (%s, %s, %s, %s) ON CONFLICT (usuario) DO NOTHING",
+                (usuario, clave_hash, rol, por),
+            )
+            return cur.rowcount == 1
+
+    def cambiar_usuario(self, usuario: str, **campos) -> bool:
+        validos = {k: v for k, v in campos.items() if k in ("clave_hash", "rol", "activo")}
+        if not validos:
+            return self.usuario(usuario) is not None
+        asignaciones = ", ".join(f"{k} = %s" for k in validos)
+        with self._conectar() as c, c.cursor() as cur:
+            cur.execute(f"UPDATE mayorista_usuarios SET {asignaciones} WHERE usuario = %s", (*validos.values(), usuario))
+            return cur.rowcount == 1
+
+    def fijar_clave_del_duenio(self, usuario: str, clave_hash: str) -> None:
+        with self._conectar() as c:
+            c.execute(
+                "INSERT INTO mayorista_usuarios (usuario, clave_hash, rol) VALUES (%s, %s, 'duenio') "
+                "ON CONFLICT (usuario) DO UPDATE SET clave_hash = EXCLUDED.clave_hash",
+                (usuario, clave_hash),
+            )
+
+    def borrar_usuario(self, usuario: str) -> bool:
+        with self._conectar() as c, c.cursor() as cur:
+            cur.execute("DELETE FROM mayorista_usuarios WHERE usuario = %s", (usuario,))
+            return cur.rowcount == 1
+
+    def anotar_ingreso(self, usuario: str, rol: str) -> None:
+        with self._conectar() as c:
+            c.execute(
+                "INSERT INTO mayorista_usuarios (usuario, rol, ultimo_ingreso) VALUES (%s, %s, now()) "
+                "ON CONFLICT (usuario) DO UPDATE SET ultimo_ingreso = now()",
+                (usuario, rol),
+            )
 
     # el prompt del agente
     @staticmethod
