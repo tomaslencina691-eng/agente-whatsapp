@@ -73,6 +73,14 @@ details.bloque .cuerpo { display: grid; gap: 14px; padding-top: 14px; }
 .chips-datos button { font: 600 12px ui-monospace, Menlo, Consolas, monospace; background: var(--noche); border: 1px solid var(--linea); border-radius: 6px; padding: 4px 8px; color: var(--mostaza-claro); }
 .burbuja { background: #0b3d1d; color: #e9fbe9; border-radius: 12px 12px 12px 3px; padding: 10px 12px; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .barra-web { position: sticky; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); z-index: 20; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; justify-content: space-between; background: var(--tarjeta); border: 1px solid var(--mostaza); border-radius: 12px; padding: 12px 16px; box-shadow: 0 10px 30px rgba(0, 0, 0, .45); }
+.chat-ag { display: grid; gap: 8px; background: var(--noche-2); border: 1px solid var(--linea); border-radius: 12px; padding: 12px; height: 300px; overflow-y: auto; align-content: start; }
+.msg-ag { max-width: 90%; padding: 8px 12px; border-radius: 12px; font-size: 13px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.msg-ag.yo { justify-self: end; background: var(--cambio); border-bottom-right-radius: 3px; }
+.msg-ag.agente { justify-self: start; background: #0b3d1d; color: #e9fbe9; border-bottom-left-radius: 3px; }
+.msg-ag small { display: block; color: var(--suave); margin-top: 4px; }
+.estado-ag { display: inline-flex; gap: 6px; align-items: center; font-size: 12.5px; font-weight: 700; border: 1px solid var(--linea); border-radius: 999px; padding: 3px 10px; color: var(--suave); }
+.estado-ag.ok { color: var(--mostaza-claro); border-color: var(--mostaza); }
+.estado-ag.mal { color: var(--error); border-color: var(--bordo); }
 .mini { --macc: #1fd65f; background: #0e0e10; border: 1px solid var(--linea); border-radius: 12px; overflow: hidden; font-size: 12px; color: #f4f4f5; }
 .mini .banda { background: var(--macc); color: #0e0e10; text-align: center; font-size: 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; padding: 5px 8px; }
 .mini .aviso { background: #3a2c08; color: #ffd36b; padding: 7px 12px; font-weight: 600; text-align: center; }
@@ -206,6 +214,7 @@ tr.sin-stock .nombre { color: var(--suave); }
       <button class="pestana" role="tab" aria-selected="true" data-pestana="stock">Stock</button>
       <button class="pestana" role="tab" aria-selected="false" data-pestana="pedidos">Pedidos<span class="contador" id="contadorPedidos" hidden></span></button>
       <button class="pestana" role="tab" aria-selected="false" data-pestana="tienda">Modelos de la tienda<span class="contador" id="contadorTienda" hidden></span></button>
+      <button class="pestana" role="tab" aria-selected="false" data-pestana="agente">Agente</button>
       <button class="pestana" role="tab" aria-selected="false" data-pestana="web">Web mayorista</button>
       <button class="pestana" role="tab" aria-selected="false" data-pestana="historial">Historial</button>
     </nav>
@@ -353,6 +362,69 @@ tr.sin-stock .nombre { color: var(--suave); }
     <div class="previa-web"><div class="estado" style="display:flex;justify-content:space-between"><b>Así se ve la web</b><a href="/" target="_blank" rel="noopener" style="color:var(--mostaza-claro)">Abrir la real</a></div><div class="mini" id="wMini"></div></div>
   </div></div></section>
 
+  <!-- AGENTE -->
+  <section id="pestanaAgente" hidden><div class="wrap"><div class="web-grid" style="grid-template-columns:minmax(0,1.4fr) minmax(300px,1fr)">
+    <div class="panel">
+      <h2>Agente de WhatsApp</h2>
+      <p class="ayuda"><span class="estado-ag" id="agEstado">Conectando...</span> Lo que publiques acá lo usa el agente en menos de medio minuto, sin redesplegar.</p>
+
+      <div class="grupo">
+        <b>Cómo habla y qué hace</b>
+        <p class="ayuda" id="agInfo"></p>
+        <textarea id="agPrompt" rows="22" spellcheck="false" aria-label="Instrucciones del agente" style="width:100%;background:var(--noche);border:1.5px solid var(--linea);border-radius:10px;color:var(--texto);padding:12px;font:13px/1.55 ui-monospace,Menlo,Consolas,monospace;resize:vertical"></textarea>
+        <p class="ayuda" id="agCambios">Sin cambios</p>
+        <p class="ayuda" id="agVarsAviso" style="color:var(--mostaza-claro)"></p>
+        <div class="campo"><label for="agNota">Qué cambiaste (opcional)</label><input id="agNota" maxlength="120" placeholder="Ej: ahora pasa el alias para transferir"></div>
+        <div class="acciones" style="justify-content:flex-start"><button class="btn" id="agDescartar" type="button">Descartar</button><button class="btn fuerte" id="agPublicar" type="button">Publicar al agente</button></div>
+        <div class="mensaje" id="agMsg" role="status"></div>
+      </div>
+
+      <div class="grupo">
+        <b>Datos del negocio</b>
+        <p class="ayuda">Completalos acá y usalos en las instrucciones con la variable que corresponde (por ejemplo {{alias_pago}}). Así cambiás un dato sin tocar el texto del agente. Si un dato queda vacío, el agente dice que lo confirma el equipo.</p>
+        <div class="dos">
+          <div class="campo"><label for="dAlias">Alias o CVU para transferir <code>{{alias_pago}}</code></label><input id="dAlias" data-d="alias_pago" maxlength="200"></div>
+          <div class="campo"><label for="dHorario">Horario de atención <code>{{horario}}</code></label><input id="dHorario" data-d="horario" maxlength="200"></div>
+          <div class="campo"><label for="dEnvio">Costo de envío <code>{{costo_envio}}</code></label><input id="dEnvio" data-d="costo_envio" maxlength="200"></div>
+          <div class="campo"><label for="dDespacho">Días de despacho <code>{{dias_despacho}}</code></label><input id="dDespacho" data-d="dias_despacho" maxlength="200"></div>
+        </div>
+        <div class="campo"><label for="dCambios">Política de cambios <code>{{politica_cambios}}</code></label><input id="dCambios" data-d="politica_cambios" maxlength="300"></div>
+        <div><span class="ayuda">Tocá una variable para sumarla en el cursor de las instrucciones:</span><div class="chips-datos" id="agVars" style="margin-top:6px"></div></div>
+        <div class="acciones" style="justify-content:flex-start"><button class="btn fuerte" id="agGuardarDatos" type="button">Guardar datos</button></div>
+        <div class="mensaje" id="agMsgDatos" role="status"></div>
+      </div>
+
+      <div class="grupo">
+        <b>Versiones</b>
+        <p class="ayuda">Cada publicación queda guardada. «Restaurar» publica de nuevo una versión vieja; no borra nada.</p>
+        <div id="agVersiones" style="display:grid;gap:8px"></div>
+      </div>
+    </div>
+
+    <div class="previa-web">
+      <div class="grupo">
+        <b>Probador</b>
+        <p class="ayuda">Escribí como un cliente. Contesta con las instrucciones del editor (aunque no estén publicadas), el stock real y los datos del negocio. No toca ninguna conversación real.</p>
+        <div class="chat-ag" id="agChat" aria-live="polite"><p class="ayuda" id="agChatVacio">Todavía no escribiste nada.</p></div>
+        <div style="display:flex;gap:8px"><input id="agChatIn" placeholder="Ej: tenés la de Barcelona 26/27 en L?" style="flex:1;background:var(--noche);border:1.5px solid var(--linea);border-radius:10px;padding:10px 12px;min-height:42px" aria-label="Mensaje de prueba"><button class="btn fuerte" id="agChatEnviar" type="button">Enviar</button></div>
+        <div class="chips-datos" id="agSugeridos"></div>
+        <div><button class="btn chico" id="agChatReiniciar" type="button">Empezar de nuevo</button></div>
+      </div>
+
+      <div class="grupo">
+        <b>Ajustes</b>
+        <label class="opcion"><input type="checkbox" id="agActivo"><span><b>Agente activo</b><small>Apagado, no contesta: cada chat nuevo pasa a una persona (etiqueta «humano» en Chatwoot).</small></span></label>
+        <div class="campo" style="max-width:260px"><label for="agMensajes">Mensajes por respuesta</label><select id="agMensajes"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select><span class="ayuda">Meta cobra cada mensaje que manda el agente.</span></div>
+        <div class="campo" style="max-width:260px"><label for="agTope">Tope de mensajes por día, por persona</label><input id="agTope" type="number" min="0" max="1000" inputmode="numeric"><span class="ayuda">0 es sin tope. Al pasarlo, el chat pasa a una persona.</span></div>
+        <label class="opcion"><input type="checkbox" id="agResueltas"><span><b>No volver a hablarle a chats resueltos</b><small>Si una persona cerró la conversación, el agente no la retoma.</small></span></label>
+        <label class="opcion"><input type="checkbox" id="agPrimero"><span><b>Contestar solo el primer mensaje</b><small>Responde una vez y sigue una persona.</small></span></label>
+        <div class="campo"><label for="agEmail">Mail de avisos</label><input id="agEmail" type="email" maxlength="120" placeholder="Si el agente falla, se avisa acá"></div>
+        <div class="acciones" style="justify-content:flex-start"><button class="btn fuerte" id="agGuardarAjustes" type="button">Guardar ajustes</button></div>
+        <div class="mensaje" id="agMsgAjustes" role="status"></div>
+      </div>
+    </div>
+  </div></div></section>
+
   <!-- HISTORIAL -->
   <section id="pestanaHistorial" hidden><div class="wrap"><div class="panel">
     <h2>Historial</h2>
@@ -443,12 +515,13 @@ $("btnSalir").addEventListener("click", async () => {
 /* ---------- pestañas ---------- */
 document.querySelectorAll(".pestana").forEach((b) => b.addEventListener("click", () => {
   document.querySelectorAll(".pestana").forEach((x) => x.setAttribute("aria-selected", String(x === b)));
-  ["stock", "pedidos", "tienda", "web", "historial"].forEach((p) => ($("pestana" + p[0].toUpperCase() + p.slice(1)).hidden = p !== b.dataset.pestana));
+  ["stock", "pedidos", "tienda", "agente", "web", "historial"].forEach((p) => ($("pestana" + p[0].toUpperCase() + p.slice(1)).hidden = p !== b.dataset.pestana));
   if (b.dataset.pestana === "stock" && planillaVieja && !pend.size) cargarPlanilla();
   if (b.dataset.pestana === "historial") cargarHistorial();
   if (b.dataset.pestana === "pedidos") cargarPedidos();
   if (b.dataset.pestana === "tienda") cargarTienda();
   if (b.dataset.pestana === "web" && (!W || !webSucia())) cargarWeb();
+  if (b.dataset.pestana === "agente" && !agSucio()) cargarAgente();
 }));
 
 /* ---------- planilla ---------- */
@@ -576,7 +649,7 @@ $("cabeza").addEventListener("change", (e) => {
 });
 $("buscar").addEventListener("input", pintar); $("filtro").addEventListener("change", pintar);
 $("btnDescartar").addEventListener("click", () => { if (confirm("¿Descartar todos los cambios sin guardar?")) { pend.clear(); pintar(); } });
-window.addEventListener("beforeunload", (e) => { if (pend.size || webSucia()) { e.preventDefault(); e.returnValue = ""; } });
+window.addEventListener("beforeunload", (e) => { if (pend.size || webSucia() || agSucio()) { e.preventDefault(); e.returnValue = ""; } });
 
 /* ---------- velos ---------- */
 function abrir(id) { $("velo").classList.add("on"); $(id).classList.add("on"); }
@@ -932,6 +1005,100 @@ $("wPublicar").addEventListener("click", async () => {
 });
 $("wDescartar").addEventListener("click", () => { if (confirm("¿Descartar los cambios sin publicar?")) cargarWeb(); });
 $("wRestablecer").addEventListener("click", () => { if (!confirm("¿Volver a los valores de siempre? No se guarda hasta que publiques.")) return; W = { ...webPorDefecto, logoHash: W.logoHash }; pintarFormWeb(); });
+
+/* ---------- agente ---------- */
+let AG = null, agBase = "", agChat = [], agEsperando = false;
+const agSucio = () => !!AG && $("agPrompt").value.trim() !== agBase.trim();
+const SUGERIDOS = ["Hola! Tenés la camiseta de Barcelona 26/27? Qué talles hay?", "Cuánto sale por 12 camisetas?", "Pasame el alias para transferir", "Hacen envíos a Salta?"];
+
+async function cargarAgente() {
+  $("agMsg").textContent = "";
+  try { AG = await api("/agente"); } catch (e) { $("agEstado").className = "estado-ag mal"; $("agEstado").textContent = "No se pudo cargar: " + e.message; return; }
+  const a = AG.agente;
+  $("agEstado").className = "estado-ag " + (a.conectado ? "ok" : "mal");
+  $("agEstado").textContent = a.conectado ? `Conectado · ${a.modelo}` : `Sin conexión con el agente: ${a.error}`;
+  agBase = AG.prompt ? AG.prompt.texto : ""; $("agPrompt").value = agBase;
+  const p = AG.prompt;
+  $("agInfo").textContent = !p ? "No se pudo traer el prompt actual: el agente no contesta." : AG.sinPublicar ? "Todavía no publicaste ninguna versión: este es el prompt del repositorio, el que usa el agente ahora."
+    : `Versión ${p.id} en uso · ${new Date(p.fecha).toLocaleString("es-AR", { dateStyle: "medium", timeStyle: "short" })} · ${p.usuario}${p.nota ? " · " + p.nota : ""}`;
+  document.querySelectorAll("[data-d]").forEach((el) => (el.value = AG.datos[el.dataset.d] || ""));
+  $("agVars").innerHTML = AG.variables.map((v) => `<button type="button" data-var="${v}">{{${v}}}</button>`).join("");
+  const s = AG.ajustes;
+  $("agActivo").checked = s.activo !== false; $("agMensajes").value = String(s.mensajesPorRespuesta || 1); $("agTope").value = s.topeMensajesPorDia || 0;
+  $("agResueltas").checked = !!s.respetarResueltas; $("agPrimero").checked = !!s.soloElPrimerMensaje; $("agEmail").value = s.avisosEmail || "";
+  pintarVersionesAg(); revisarPromptAg(); pintarSugeridos();
+}
+function pintarVersionesAg() {
+  $("agVersiones").innerHTML = AG.versiones.length ? AG.versiones.map((v) => `<div class="lote" style="padding:8px 12px"><header><b>Versión ${v.id}</b>${v.activa ? '<span class="etq verde">En uso</span>' : ""}<span>${esc(new Date(v.fecha).toLocaleString("es-AR", { dateStyle: "medium", timeStyle: "short" }))}</span><span>${esc(v.usuario)}</span><span class="espacio"></span>
+    <button class="btn chico" data-ver="${v.id}" type="button">Ver en el editor</button>${v.activa ? "" : `<button class="btn chico" data-restaurar-ag="${v.id}" type="button">Restaurar</button>`}</header>${v.nota ? `<div class="detalle"><div>${esc(v.nota)}</div></div>` : ""}</div>`).join("") : '<p class="ayuda">Todavía no hay versiones publicadas.</p>';
+}
+function cambiosAg() {
+  const a = new Set(agBase.split("\n")), b = new Set($("agPrompt").value.split("\n"));
+  return [$("agPrompt").value.split("\n").filter((l) => !a.has(l)).length, agBase.split("\n").filter((l) => !b.has(l)).length];
+}
+function revisarPromptAg() {
+  const [mas, menos] = cambiosAg(); $("agCambios").textContent = mas || menos ? `Cambios sin publicar: ${mas} líneas nuevas, ${menos} quitadas` : "Sin cambios";
+  const usadas = [...new Set([...$("agPrompt").value.matchAll(/\{\{(\w+)\}\}/g)].map((m) => m[1]))];
+  const vacias = usadas.filter((v) => AG && AG.variables.includes(v) && !(document.querySelector(`[data-d="${v}"]`).value || "").trim());
+  const raras = usadas.filter((v) => AG && !AG.variables.includes(v));
+  $("agVarsAviso").textContent = raras.length ? `Hay datos que no existen: ${raras.map((v) => "{{" + v + "}}").join(", ")}.` : vacias.length ? `Falta completar en «Datos del negocio»: ${vacias.map((v) => "{{" + v + "}}").join(", ")}. Mientras tanto el agente dice que lo confirma el equipo.` : "";
+  $("agPublicar").disabled = !(mas || menos);
+}
+$("agPrompt").addEventListener("input", revisarPromptAg);
+document.querySelectorAll("[data-d]").forEach((el) => el.addEventListener("input", revisarPromptAg));
+$("agVars").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-var]"); if (!b) return; const a = $("agPrompt"), txt = `{{${b.dataset.var}}}`, i = a.selectionStart == null ? a.value.length : a.selectionStart;
+  a.value = a.value.slice(0, i) + txt + a.value.slice(a.selectionEnd == null ? i : a.selectionEnd); a.focus(); a.setSelectionRange(i + txt.length, i + txt.length); revisarPromptAg();
+});
+$("agDescartar").addEventListener("click", () => { $("agPrompt").value = agBase; $("agNota").value = ""; revisarPromptAg(); });
+$("agPublicar").addEventListener("click", async () => {
+  const msg = $("agMsg"); msg.className = "mensaje"; msg.textContent = ""; $("agPublicar").disabled = true;
+  try {
+    const r = await api("/agente/prompt", { metodo: "PUT", cuerpo: { texto: $("agPrompt").value, nota: $("agNota").value } });
+    $("agNota").value = ""; await cargarAgente(); aviso(`Publicado: versión ${r.id}. El agente la usa en menos de medio minuto.`);
+    if (r.vacias.length) { $("agMsg").className = "mensaje"; $("agMsg").style.color = "var(--mostaza-claro)"; $("agMsg").textContent = `Ojo: no completaste ${r.vacias.map((v) => "{{" + v + "}}").join(", ")}.`; }
+  } catch (err) { msg.style.color = ""; msg.textContent = err.message; revisarPromptAg(); }
+});
+$("agVersiones").addEventListener("click", async (e) => {
+  const ver = e.target.closest("[data-ver]"), res = e.target.closest("[data-restaurar-ag]");
+  if (ver) { try { const v = await api(`/agente/versiones/${ver.dataset.ver}`); $("agPrompt").value = v.texto; revisarPromptAg(); aviso(`Versión ${v.id} cargada en el editor. Publicala para activarla.`); $("agPrompt").scrollIntoView({ block: "center" }); } catch (err) { alert(err.message); } }
+  if (res) { if (!confirm(`¿Volver a la versión ${res.dataset.restaurarAg}? Se publica como una versión nueva.`)) return; try { await api("/agente/prompt/restaurar", { metodo: "POST", cuerpo: { id: Number(res.dataset.restaurarAg) } }); await cargarAgente(); aviso("Versión restaurada."); } catch (err) { alert(err.message); } }
+});
+$("agGuardarDatos").addEventListener("click", async () => {
+  const msg = $("agMsgDatos"); msg.className = "mensaje"; msg.textContent = "";
+  const cuerpo = {}; document.querySelectorAll("[data-d]").forEach((el) => (cuerpo[el.dataset.d] = el.value));
+  try { const r = await api("/agente/datos", { metodo: "PUT", cuerpo }); AG.datos = cuerpo; revisarPromptAg(); msg.className = "mensaje ok"; msg.textContent = r.cambios.length ? "Guardado. El agente lo usa en menos de medio minuto." : "No había cambios."; }
+  catch (err) { msg.textContent = err.message; }
+});
+$("agGuardarAjustes").addEventListener("click", async () => {
+  const msg = $("agMsgAjustes"); msg.className = "mensaje"; msg.textContent = "";
+  if (!$("agActivo").checked && !confirm("¿Pausar el agente? Deja de contestar y cada chat nuevo pasa a una persona.")) return;
+  const cuerpo = { activo: $("agActivo").checked, mensajesPorRespuesta: Number($("agMensajes").value), topeMensajesPorDia: parseInt($("agTope").value, 10) || 0, respetarResueltas: $("agResueltas").checked, soloElPrimerMensaje: $("agPrimero").checked, avisosEmail: $("agEmail").value.trim() };
+  try { const r = await api("/agente/ajustes", { metodo: "PUT", cuerpo }); msg.className = "mensaje ok"; msg.textContent = r.cambios.length ? `Guardado (${r.cambios.join(", ")}). Rige en menos de medio minuto.` : "No había cambios."; }
+  catch (err) { msg.textContent = err.message; }
+});
+/* probador */
+function pintarChatAg() {
+  $("agChat").innerHTML = agChat.length ? agChat.map((m) => `<div class="msg-ag ${m.rol}">${esc(m.texto)}${m.nota ? `<small>${esc(m.nota)}</small>` : ""}</div>`).join("") : '<p class="ayuda">Todavía no escribiste nada.</p>';
+  if (agEsperando) $("agChat").insertAdjacentHTML("beforeend", '<div class="msg-ag agente"><small>Escribiendo...</small></div>');
+  $("agChat").scrollTop = $("agChat").scrollHeight;
+}
+function pintarSugeridos() { $("agSugeridos").innerHTML = SUGERIDOS.map((s) => `<button type="button" data-sug="${esc(s)}">${esc(s)}</button>`).join(""); }
+const NOMBRE_HERRAMIENTA = { buscar_producto: "Consultó el stock", consultar_pedido: "Consultó un pedido", clima: "Consultó el clima" };
+async function enviarAg(texto) {
+  texto = texto.trim(); if (!texto || agEsperando) return;
+  agChat.push({ rol: "yo", texto }); agEsperando = true; $("agChatIn").value = ""; pintarChatAg();
+  try {
+    const r = await api("/agente/probar", { metodo: "POST", cuerpo: { prompt: $("agPrompt").value, mensajes: agChat.map(({ rol, texto }) => ({ rol, texto })) } });
+    const globos = r.mensajes.length ? r.mensajes : [r.texto];
+    globos.forEach((g, i) => agChat.push({ rol: "agente", texto: g, nota: i === globos.length - 1 && r.herramientas.length ? [...new Set(r.herramientas)].map((h) => NOMBRE_HERRAMIENTA[h] || h).join(", ") : "" }));
+  } catch (err) { agChat.push({ rol: "agente", texto: "No se pudo probar: " + err.message }); }
+  agEsperando = false; pintarChatAg();
+}
+$("agChatEnviar").addEventListener("click", () => enviarAg($("agChatIn").value));
+$("agChatIn").addEventListener("keydown", (e) => { if (e.key === "Enter") enviarAg(e.target.value); });
+$("agSugeridos").addEventListener("click", (e) => { const b = e.target.closest("[data-sug]"); if (b) enviarAg(b.dataset.sug); });
+$("agChatReiniciar").addEventListener("click", () => { agChat = []; pintarChatAg(); });
 
 arrancar();
 </script>

@@ -14,8 +14,11 @@ aplica entero o no se aplica nada.
                        pedido se descuenta el stock; al cancelarlo, se devuelve.
   · mayorista_ignorados  los modelos de la tienda que la persona decidió no
                        ofrecer en el mayorista (no vuelven a aparecer como nuevos).
-  · mayorista_config   ajustes que se editan desde el panel (hoy, las categorías
-                       de la web); lo que no está acá rige `negocio.json`.
+  · mayorista_config   ajustes que se editan desde el panel (las categorías y los
+                       textos de la web, los ajustes del agente); lo que no está
+                       acá rige `negocio.json` y las variables de entorno.
+  · agente_prompts     las versiones del prompt del agente: una sola está activa
+                       y es la que el agente usa (lo lee en vivo, ver panel_db.py).
 """
 
 from __future__ import annotations
@@ -53,6 +56,16 @@ CREATE TABLE IF NOT EXISTS mayorista_ignorados (
     nombre      TEXT        NOT NULL,
     fecha       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS agente_prompts (
+    id      BIGSERIAL   PRIMARY KEY,
+    texto   TEXT        NOT NULL,
+    usuario TEXT        NOT NULL DEFAULT '',
+    nota    TEXT        NOT NULL DEFAULT '',
+    fecha   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    activa  BOOLEAN     NOT NULL DEFAULT FALSE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS agente_prompts_activa ON agente_prompts (activa) WHERE activa;
 
 CREATE TABLE IF NOT EXISTS mayorista_config (
     clave       TEXT        PRIMARY KEY,
@@ -125,6 +138,7 @@ class AlmacenMemoria:
         self._pedidos: dict[str, dict] = {}
         self._ignorados: dict[int, dict] = {}
         self._config: dict[str, object] = {}
+        self._prompts: list[dict] = []
 
     def preparar(self) -> None:
         pass
@@ -141,6 +155,27 @@ class AlmacenMemoria:
     def ignorados(self) -> list[dict]:
         with self._candado:
             return [dict(i) for i in sorted(self._ignorados.values(), key=lambda i: i["fecha"], reverse=True)]
+
+    # el prompt del agente
+    def prompt_activo(self) -> dict | None:
+        with self._candado:
+            return next((dict(p) for p in self._prompts if p["activa"]), None)
+
+    def prompt_versiones(self, limite: int = 40) -> list[dict]:
+        with self._candado:
+            return [{k: v for k, v in p.items() if k != "texto"} for p in sorted(self._prompts, key=lambda p: -p["id"])[:limite]]
+
+    def prompt_version(self, id: int) -> dict | None:
+        with self._candado:
+            return next((dict(p) for p in self._prompts if p["id"] == id), None)
+
+    def publicar_prompt(self, texto: str, usuario: str, nota: str = "") -> int:
+        with self._candado:
+            for p in self._prompts:
+                p["activa"] = False
+            nuevo = {"id": len(self._prompts) + 1, "texto": texto, "usuario": usuario, "nota": nota, "fecha": datetime.now(timezone.utc).isoformat(), "activa": True}
+            self._prompts.append(nuevo)
+            return nuevo["id"]
 
     def config(self, clave: str):
         with self._candado:
@@ -315,6 +350,37 @@ class AlmacenPG:
         with self._conectar() as c, c.cursor() as cur:
             cur.execute("SELECT producto_id, nombre, fecha FROM mayorista_ignorados ORDER BY fecha DESC")
             return [{"producto_id": f[0], "nombre": f[1], "fecha": f[2].isoformat()} for f in cur.fetchall()]
+
+    # el prompt del agente
+    @staticmethod
+    def _version(f, con_texto: bool) -> dict:
+        v = {"id": f[0], "usuario": f[1], "nota": f[2], "fecha": f[3].isoformat(), "activa": f[4]}
+        if con_texto:
+            v["texto"] = f[5]
+        return v
+
+    def prompt_activo(self) -> dict | None:
+        with self._conectar() as c, c.cursor() as cur:
+            cur.execute("SELECT id, usuario, nota, fecha, activa, texto FROM agente_prompts WHERE activa")
+            f = cur.fetchone()
+            return self._version(f, True) if f else None
+
+    def prompt_versiones(self, limite: int = 40) -> list[dict]:
+        with self._conectar() as c, c.cursor() as cur:
+            cur.execute("SELECT id, usuario, nota, fecha, activa FROM agente_prompts ORDER BY id DESC LIMIT %s", (int(limite),))
+            return [self._version(f, False) for f in cur.fetchall()]
+
+    def prompt_version(self, id: int) -> dict | None:
+        with self._conectar() as c, c.cursor() as cur:
+            cur.execute("SELECT id, usuario, nota, fecha, activa, texto FROM agente_prompts WHERE id = %s", (id,))
+            f = cur.fetchone()
+            return self._version(f, True) if f else None
+
+    def publicar_prompt(self, texto: str, usuario: str, nota: str = "") -> int:
+        with self._conectar() as c, c.cursor() as cur:
+            cur.execute("UPDATE agente_prompts SET activa = FALSE WHERE activa")
+            cur.execute("INSERT INTO agente_prompts (texto, usuario, nota, activa) VALUES (%s, %s, %s, TRUE) RETURNING id", (texto, usuario, nota))
+            return cur.fetchone()[0]
 
     def config(self, clave: str):
         with self._conectar() as c, c.cursor() as cur:

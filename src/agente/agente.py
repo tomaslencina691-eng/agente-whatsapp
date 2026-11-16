@@ -27,7 +27,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterator
 
-from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 
@@ -35,6 +35,7 @@ from .config import Config
 from .herramientas import HERRAMIENTAS
 from .memoria import crear_memoria
 from .modelos import crear_modelo
+from .panel_db import PanelEnVivo
 from .prompts import leer_prompt
 from .respuesta import partir_respuesta
 
@@ -99,6 +100,9 @@ class Transmision:
 
 
 class Agente:
+    # El prompt del panel (ver panel_db.py). None: rige prompts/sistema.md.
+    panel: PanelEnVivo | None = None
+
     def __init__(self, config: Config | None = None, checkpointer=None) -> None:
         self.config = config or Config.desde_entorno()
 
@@ -112,6 +116,10 @@ class Agente:
         # La memoria: SQLite si MODO=test, Postgres si MODO=produccion.
         # Se le puede pasar otra a mano (los tests le pasan una en RAM).
         self.checkpointer = checkpointer or crear_memoria(self.config)
+
+        # El prompt que se edita desde el panel de administración (con versiones). Sin base
+        # compartida, o si no hay nada guardado, rige prompts/sistema.md.
+        self.panel = PanelEnVivo.desde_config(self.config)
 
         self.grafo = self._construir_grafo()
 
@@ -151,8 +159,10 @@ class Agente:
     def _armar_entrada(self, estado: MessagesState) -> list:
         """Prompt de sistema + los últimos mensajes de la conversación.
 
-        El prompt se lee del archivo en CADA mensaje, no una sola vez al
-        arrancar: por eso podés editar prompts/sistema.md sin reiniciar.
+        El prompt se lee en CADA mensaje, no una sola vez al arrancar: del panel
+        de administración (con una caché de 20 segundos) o, si no hay nada
+        guardado allá, de prompts/sistema.md. Por eso se puede cambiar con el
+        agente andando.
         """
         recientes = _recortar(estado["messages"], self.config.memoria_mensajes)
         return [self._sistema(), *recientes]
@@ -173,7 +183,7 @@ class Agente:
         (más o menos 1.000 tokens). Con un prompt corto no pasa nada malo,
         simplemente no se cachea.
         """
-        texto = leer_prompt(self.config.prompt_sistema)
+        texto = (self.panel.prompt() if self.panel else None) or leer_prompt(self.config.prompt_sistema)
 
         if self.config.cache and self.config.proveedor == "claude":
             return SystemMessage(
@@ -260,6 +270,49 @@ class Agente:
         larga se manda en varios globos cortos, no en un ladrillo.
         """
         return partir_respuesta(self.responder(texto, conversacion).texto)
+
+    def probar(self, prompt: str, mensajes: list[tuple[str, str]], maximo_mensajes: int = 3) -> dict:
+        """Una prueba suelta para el panel: contesta con el prompt que se le pasa, sin guardar nada.
+
+        `mensajes` es la conversación de prueba hasta ahora, [(rol, texto)] con rol «yo» (la persona)
+        o «agente». No toca la memoria de ninguna conversación real. Usa las herramientas de
+        verdad (el stock del mayorista, los pedidos): lo que se ve acá es lo que respondería.
+        """
+        entrada: list = [SystemMessage(prompt)]
+        for rol, texto in mensajes:
+            entrada.append(AIMessage(texto) if rol == "agente" else HumanMessage(texto))
+
+        modelo = self.modelo.bind_tools(HERRAMIENTAS)
+        por_nombre = {h.name: h for h in HERRAMIENTAS}
+        usadas: list[str] = []
+        entrada_tokens = salida_tokens = 0
+        respuesta = None
+        for _ in range(5):  # el modelo puede pedir varias herramientas seguidas
+            respuesta = modelo.invoke(entrada)
+            entrada.append(respuesta)
+            uso = getattr(respuesta, "usage_metadata", None) or {}
+            entrada_tokens += uso.get("input_tokens", 0)
+            salida_tokens += uso.get("output_tokens", 0)
+            llamadas = getattr(respuesta, "tool_calls", None) or []
+            if not llamadas:
+                break
+            for llamada in llamadas:
+                herramienta = por_nombre.get(llamada["name"])
+                try:
+                    resultado = herramienta.invoke(llamada["args"]) if herramienta else "Esa herramienta no existe."
+                except Exception as e:  # noqa: BLE001
+                    resultado = f"La herramienta falló: {type(e).__name__}: {e}"
+                usadas.append(llamada["name"])
+                entrada.append(ToolMessage(content=str(resultado), tool_call_id=llamada["id"]))
+
+        texto = _texto_de(respuesta)
+        return {
+            "texto": texto,
+            "mensajes": partir_respuesta(texto, maximo=maximo_mensajes),
+            "herramientas": usadas,
+            "tokens_entrada": entrada_tokens,
+            "tokens_salida": salida_tokens,
+        }
 
     def historial(self, conversacion: str = "local") -> list:
         """Los mensajes guardados de una conversación."""

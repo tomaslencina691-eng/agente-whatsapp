@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "mayorista"))
 
 import acceso  # noqa: E402
 import admin  # noqa: E402
+import agente_cliente  # noqa: E402
 import ajustes  # noqa: E402
 import almacen  # noqa: E402
 import historial as hist  # noqa: E402
@@ -83,6 +84,35 @@ class TiendaFalsa:
         monkeypatch.setattr(tn, "categorias", lambda: [{"id": 5, "name": {"es": "FÚTBOL ARGENTINO"}, "parent": None}, {"id": 6, "name": {"es": "BOCA"}, "parent": 5}])
 
 
+class AgenteFalso:
+    """El agente de verdad vive en otro contenedor: acá contesta lo que se le diga."""
+
+    def __init__(self):
+        self.caido = False
+        self.pruebas = []
+        self.estado_ = {
+            "proveedor": "openai", "modelo": "gpt-5", "prompt_base": "Sos el asistente de la tienda. Atendés por WhatsApp.",
+            "base": {"activo": True, "mensajesPorRespuesta": 1, "topeMensajesPorDia": 10, "respetarResueltas": True, "soloElPrimerMensaje": False, "avisosEmail": "duenio@ejemplo.com"},
+            "vivos": {}, "variables": list(admin.VARIABLES_DEL_AGENTE),
+        }
+
+    def estado(self):
+        if self.caido:
+            raise agente_cliente.ErrorDelAgente("No se pudo hablar con el agente: connection refused")
+        return self.estado_
+
+    def probar(self, prompt, mensajes, datos):
+        if self.caido:
+            raise agente_cliente.ErrorDelAgente("El modelo no contestó")
+        self.pruebas.append((prompt, mensajes, datos))
+        return {"texto": "Hola, ¿qué talle buscás?", "mensajes": ["Hola, ¿qué talle buscás?"], "herramientas": [], "tokens_entrada": 10, "tokens_salida": 5}
+
+
+@pytest.fixture
+def agente():
+    return AgenteFalso()
+
+
 @pytest.fixture
 def tienda(monkeypatch):
     t = TiendaFalsa()
@@ -109,13 +139,13 @@ def invalidaciones():
 
 
 @pytest.fixture
-def cliente(monkeypatch, tienda, memoria, alm, invalidaciones):
+def cliente(monkeypatch, tienda, memoria, alm, invalidaciones, agente):
     monkeypatch.setattr(acceso, "USUARIO", "leo")
     monkeypatch.setattr(acceso, "CLAVE", CLAVE)
     monkeypatch.setattr(acceso, "SECRETO", "s" * 40)
     acceso._fallos.clear()
     app = FastAPI()
-    app.include_router(admin.crear_router(memoria, lambda: invalidaciones.append(1), alm, FILTROS, lambda: dict(DEFECTO_WEB)))
+    app.include_router(admin.crear_router(memoria, lambda: invalidaciones.append(1), alm, FILTROS, lambda: dict(DEFECTO_WEB), agente))
     return TestClient(app)
 
 
@@ -158,6 +188,8 @@ def pedido(alm, codigo, *items, estado="nuevo"):
         ("post", "/admin/api/tienda/cargar-stock"), ("post", "/admin/api/tienda/ignorar"), ("post", "/admin/api/tienda/restaurar"),
         ("get", "/admin/api/tienda/categorias"), ("put", "/admin/api/tienda/categorias"),
         ("get", "/admin/api/web"), ("put", "/admin/api/web"), ("put", "/admin/api/web/logo"), ("delete", "/admin/api/web/logo"),
+        ("get", "/admin/api/agente"), ("put", "/admin/api/agente/prompt"), ("post", "/admin/api/agente/prompt/restaurar"), ("put", "/admin/api/agente/ajustes"),
+        ("put", "/admin/api/agente/datos"), ("post", "/admin/api/agente/probar"), ("get", "/admin/api/agente/versiones/1"),
     ],
 )
 def test_sin_sesion_no_se_entra_a_nada(cliente, metodo, ruta):
@@ -878,3 +910,185 @@ def test_los_ajustes_exigen_el_header_propio(sesion):
     assert sesion.put("/admin/api/web", json=web()).status_code == 403
     assert sesion.put("/admin/api/web/logo", json={"datos": PNG_LOGO}).status_code == 403
     assert sesion.delete("/admin/api/web/logo").status_code == 403
+
+
+# -- El agente de WhatsApp -------------------------------------------------------------
+
+PROMPT = "Sos el asistente de la tienda. Atendés por WhatsApp en español rioplatense."
+
+
+def test_sin_versiones_publicadas_el_panel_muestra_el_prompt_del_repositorio(sesion):
+    d = sesion.get("/admin/api/agente").json()
+
+    assert d["agente"] == {"conectado": True, "error": "", "modelo": "gpt-5", "proveedor": "openai"}
+    assert d["sinPublicar"] is True and d["prompt"]["id"] is None and d["prompt"]["texto"].startswith("Sos el asistente")
+    assert d["versiones"] == []
+    assert d["ajustes"]["mensajesPorRespuesta"] == 1 and d["ajustes"]["avisosEmail"] == "duenio@ejemplo.com", "los del entorno, mientras no se guarde nada"
+    assert d["datos"] == {v: "" for v in admin.VARIABLES_DEL_AGENTE} and d["variables"] == list(admin.VARIABLES_DEL_AGENTE)
+
+
+def test_si_el_agente_no_contesta_el_panel_lo_dice_y_sigue_mostrando_lo_guardado(sesion, agente, alm):
+    alm.publicar_prompt(PROMPT, "leo", "primera")
+    agente.caido = True
+
+    d = sesion.get("/admin/api/agente").json()
+
+    assert d["agente"]["conectado"] is False and "connection refused" in d["agente"]["error"]
+    assert d["prompt"]["texto"] == PROMPT and d["sinPublicar"] is False
+
+
+def test_sin_agente_conectado_se_avisa(monkeypatch, tienda, memoria, alm):
+    monkeypatch.setattr(acceso, "USUARIO", "leo")
+    monkeypatch.setattr(acceso, "CLAVE", CLAVE)
+    monkeypatch.setattr(acceso, "SECRETO", "s" * 40)
+    acceso._fallos.clear()
+    app = FastAPI()
+    app.include_router(admin.crear_router(memoria, lambda: None, alm, FILTROS, lambda: dict(DEFECTO_WEB), None))
+    c = TestClient(app)
+    c.post("/admin/api/login", json={"usuario": "leo", "clave": CLAVE}, headers=H)
+
+    d = c.get("/admin/api/agente").json()
+
+    assert d["agente"]["conectado"] is False and "AGENTE_PANEL_TOKEN" in d["agente"]["error"]
+    assert c.post("/admin/api/agente/probar", json={"prompt": PROMPT, "mensajes": [{"rol": "yo", "texto": "hola"}]}, headers=H).status_code == 503
+
+
+def test_publicar_el_prompt_lo_deja_en_uso_y_en_el_historial(sesion, alm, memoria):
+    r = sesion.put("/admin/api/agente/prompt", json={"texto": PROMPT, "nota": "Primer cambio"}, headers=H)
+
+    assert r.status_code == 200 and r.json()["id"] == 1
+    d = sesion.get("/admin/api/agente").json()
+    assert d["sinPublicar"] is False and d["prompt"]["texto"] == PROMPT and d["prompt"]["nota"] == "Primer cambio" and d["prompt"]["usuario"] == "leo"
+    assert [(v["id"], v["activa"]) for v in d["versiones"]] == [(1, True)]
+    assert "texto" not in d["versiones"][0], "la lista no carga los textos enteros"
+    assert memoria.filas[-1]["accion"] == "config" and "versión 1" in memoria.filas[-1]["talle"]
+
+
+def test_cada_publicacion_es_una_version_nueva_y_solo_la_ultima_esta_en_uso(sesion, alm):
+    sesion.put("/admin/api/agente/prompt", json={"texto": PROMPT}, headers=H)
+    sesion.put("/admin/api/agente/prompt", json={"texto": PROMPT + " Sé breve."}, headers=H)
+
+    d = sesion.get("/admin/api/agente").json()
+
+    assert [(v["id"], v["activa"]) for v in d["versiones"]] == [(2, True), (1, False)]
+    assert alm.prompt_activo()["id"] == 2
+
+
+def test_publicar_un_prompt_igual_al_que_esta_en_uso_no_hace_nada(sesion):
+    sesion.put("/admin/api/agente/prompt", json={"texto": PROMPT}, headers=H)
+
+    r = sesion.put("/admin/api/agente/prompt", json={"texto": "  " + PROMPT + "\n"}, headers=H)
+
+    assert r.status_code == 422 and len(sesion.get("/admin/api/agente").json()["versiones"]) == 1
+
+
+@pytest.mark.parametrize("texto", ["corto", "x" * 30001, PROMPT + " {{inventada}}"])
+def test_prompts_que_no_se_pueden_publicar(sesion, alm, texto):
+    r = sesion.put("/admin/api/agente/prompt", json={"texto": texto}, headers=H)
+
+    assert r.status_code == 422 and alm.prompt_activo() is None
+
+
+def test_se_avisa_que_variables_del_prompt_no_tienen_dato(sesion):
+    r = sesion.put("/admin/api/agente/prompt", json={"texto": PROMPT + " Alias: {{alias_pago}}. Horario: {{horario}}."}, headers=H)
+    assert r.json()["vacias"] == ["alias_pago", "horario"]
+
+    sesion.put("/admin/api/agente/datos", json={"alias_pago": "sf.pagos"}, headers=H)
+    r = sesion.put("/admin/api/agente/prompt", json={"texto": PROMPT + " Alias: {{alias_pago}}. Horario: {{horario}}. Otra vez."}, headers=H)
+
+    assert r.json()["vacias"] == ["horario"]
+
+
+def test_restaurar_una_version_la_publica_como_una_nueva(sesion, alm):
+    sesion.put("/admin/api/agente/prompt", json={"texto": PROMPT}, headers=H)
+    sesion.put("/admin/api/agente/prompt", json={"texto": PROMPT + " Sé breve."}, headers=H)
+
+    r = sesion.post("/admin/api/agente/prompt/restaurar", json={"id": 1}, headers=H)
+
+    assert r.status_code == 200 and r.json()["id"] == 3
+    activo = alm.prompt_activo()
+    assert activo["texto"] == PROMPT and activo["nota"] == "Restaurada de la versión 1"
+    assert len(alm.prompt_versiones()) == 3, "el historial no se pierde"
+
+
+def test_restaurar_una_version_que_no_existe_da_404(sesion):
+    assert sesion.post("/admin/api/agente/prompt/restaurar", json={"id": 99}, headers=H).status_code == 404
+    assert sesion.get("/admin/api/agente/versiones/99").status_code == 404
+
+
+def test_se_puede_ver_el_texto_de_una_version_vieja(sesion):
+    sesion.put("/admin/api/agente/prompt", json={"texto": PROMPT}, headers=H)
+    sesion.put("/admin/api/agente/prompt", json={"texto": PROMPT + " Sé breve."}, headers=H)
+
+    assert sesion.get("/admin/api/agente/versiones/1").json()["texto"] == PROMPT
+
+
+AJUSTES_AGENTE = {"activo": True, "mensajesPorRespuesta": 2, "topeMensajesPorDia": 20, "respetarResueltas": True, "soloElPrimerMensaje": False, "avisosEmail": "otro@ejemplo.com"}
+
+
+def test_los_ajustes_del_agente_se_guardan_y_se_ven(sesion, alm, memoria):
+    r = sesion.put("/admin/api/agente/ajustes", json=AJUSTES_AGENTE, headers=H)
+
+    assert r.status_code == 200 and set(r.json()["cambios"]) == {"mensajes por respuesta", "tope por día", "mail de avisos"}
+    assert alm.config("agente_ajustes")["mensajesPorRespuesta"] == 2
+    d = sesion.get("/admin/api/agente").json()["ajustes"]
+    assert (d["mensajesPorRespuesta"], d["topeMensajesPorDia"], d["avisosEmail"]) == (2, 20, "otro@ejemplo.com")
+    assert memoria.filas[-1]["producto"] == "Ajustes del agente"
+
+
+def test_pausar_el_agente_queda_anotado(sesion, memoria):
+    sesion.put("/admin/api/agente/ajustes", json={**AJUSTES_AGENTE, "activo": False}, headers=H)
+
+    assert sesion.get("/admin/api/agente").json()["ajustes"]["activo"] is False
+    assert "agente activo" in memoria.filas[-1]["talle"]
+
+
+@pytest.mark.parametrize("cambios", [{"mensajesPorRespuesta": 0}, {"mensajesPorRespuesta": 6}, {"topeMensajesPorDia": -1}, {"topeMensajesPorDia": 1001}, {"avisosEmail": "no-es-un-mail"}])
+def test_ajustes_del_agente_que_no_sirven(sesion, alm, cambios):
+    r = sesion.put("/admin/api/agente/ajustes", json={**AJUSTES_AGENTE, **cambios}, headers=H)
+
+    assert r.status_code == 422 and alm.config("agente_ajustes") is None
+
+
+def test_sin_mail_de_avisos_es_valido(sesion):
+    assert sesion.put("/admin/api/agente/ajustes", json={**AJUSTES_AGENTE, "avisosEmail": ""}, headers=H).status_code == 200
+
+
+def test_los_datos_del_negocio_se_guardan_limpios(sesion, alm, memoria):
+    r = sesion.put("/admin/api/agente/datos", json={"alias_pago": "  sf.pagos  ", "horario": "de   9 a 18"}, headers=H)
+
+    assert r.status_code == 200 and set(r.json()["cambios"]) == {"alias_pago", "horario"}
+    assert alm.config("agente_datos")["alias_pago"] == "sf.pagos" and alm.config("agente_datos")["horario"] == "de 9 a 18"
+    assert sesion.get("/admin/api/agente").json()["datos"]["costo_envio"] == ""
+
+
+def test_probar_le_manda_al_agente_el_prompt_del_editor_y_los_datos(sesion, agente):
+    sesion.put("/admin/api/agente/datos", json={"alias_pago": "sf.pagos"}, headers=H)
+
+    r = sesion.post("/admin/api/agente/probar", json={"prompt": PROMPT + " {{alias_pago}}", "mensajes": [{"rol": "yo", "texto": "hola"}]}, headers=H)
+
+    assert r.status_code == 200 and r.json()["texto"] == "Hola, ¿qué talle buscás?"
+    prompt, mensajes, datos = agente.pruebas[0]
+    assert prompt.endswith("{{alias_pago}}"), "el agente es quien reemplaza las variables"
+    assert mensajes == [{"rol": "yo", "texto": "hola"}] and datos["alias_pago"] == "sf.pagos"
+
+
+def test_la_prueba_tiene_que_terminar_con_un_mensaje_de_la_persona(sesion, agente):
+    r = sesion.post("/admin/api/agente/probar", json={"prompt": PROMPT, "mensajes": [{"rol": "yo", "texto": "hola"}, {"rol": "agente", "texto": "buenas"}]}, headers=H)
+
+    assert r.status_code == 422 and agente.pruebas == []
+
+
+def test_si_el_agente_falla_la_prueba_lo_dice(sesion, agente):
+    agente.caido = True
+
+    r = sesion.post("/admin/api/agente/probar", json={"prompt": PROMPT, "mensajes": [{"rol": "yo", "texto": "hola"}]}, headers=H)
+
+    assert r.status_code == 502 and "El modelo no contestó" in r.json()["detail"]
+
+
+def test_los_cambios_del_agente_exigen_el_header_propio(sesion):
+    assert sesion.put("/admin/api/agente/prompt", json={"texto": PROMPT}).status_code == 403
+    assert sesion.put("/admin/api/agente/ajustes", json=AJUSTES_AGENTE).status_code == 403
+    assert sesion.put("/admin/api/agente/datos", json={}).status_code == 403
+    assert sesion.post("/admin/api/agente/probar", json={"prompt": PROMPT, "mensajes": [{"rol": "yo", "texto": "x"}]}).status_code == 403

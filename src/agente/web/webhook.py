@@ -39,6 +39,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 import secrets
 from collections import defaultdict
@@ -57,6 +58,8 @@ from ..canales.whatsapp_meta import marcar_visto_y_escribiendo, wamid_del_evento
 from ..config import Config, ErrorDeConfiguracion
 from ..frenos import BLOQUEAR, IGNORAR, TopeDeMensajes
 from ..modelos import crear_modelo
+from ..panel_db import VARIABLES, PanelEnVivo, aplicar_datos
+from ..prompts import leer_prompt
 from ..respuesta import partir_respuesta
 
 registro = logging.getLogger("agente.webhook")
@@ -211,6 +214,7 @@ def crear_app(
     avisos: Avisos | None = None,
     tope: TopeDeMensajes | None = None,
     lector: Lector | None = None,
+    panel: PanelEnVivo | None = None,
 ) -> FastAPI:
     """Arma el servidor.
 
@@ -236,6 +240,14 @@ def crear_app(
     tope = tope or TopeDeMensajes(config.tope_mensajes_por_dia)
     lector = lector or armar_lector(config, canal)
     etiqueta = config.chatwoot_etiqueta_humano
+
+    # Lo que se cambia desde el panel de administración (pausar el agente, cuántos mensajes
+    # por respuesta, el tope diario...) rige en vivo, sin redesplegar: se lee de la base con
+    # una caché corta y, si no hay nada guardado, vale lo del entorno.
+    vivos = panel or getattr(agente, "panel", None) or PanelEnVivo.desde_config(config)
+
+    def vivo() -> dict:
+        return vivos.valores(config)
     con_meta = bool(config.whatsapp_token and config.whatsapp_phone_number_id)
 
     # Un candado por conversación. Dos personas distintas se atienden a la
@@ -331,7 +343,7 @@ def crear_app(
                 if await ya_no_le_toca(conversacion):
                     return
 
-                primera = config.solo_el_primer_mensaje and not await asyncio.to_thread(
+                primera = vivo()["soloElPrimerMensaje"] and not await asyncio.to_thread(
                     agente.historial, conversacion
                 )
 
@@ -344,7 +356,7 @@ def crear_app(
                     return
 
                 mensajes = partir_respuesta(
-                    respuesta.texto, maximo=config.mensajes_por_respuesta
+                    respuesta.texto, maximo=vivo()["mensajesPorRespuesta"]
                 )
                 if not mensajes:
                     # Una respuesta vacía también es una falla: sin esto, la
@@ -449,6 +461,16 @@ def crear_app(
                 f"La conversación: {canal.enlace(conversacion)}",
                 f"tope:{type(e).__name__}",
             )
+
+    # Las conversaciones que ya pasaron a una persona porque el agente estaba en pausa.
+    en_pausa: set[str] = set()
+
+    async def pasar_por_pausa(conversacion: str) -> None:
+        try:
+            await asyncio.to_thread(canal.pasar_a_persona, conversacion)
+            registro.info("[%s] el agente está en pausa: pasa a una persona", conversacion)
+        except Exception as e:
+            registro.error("[%s] no se pudo pasar a una persona (agente en pausa): %s", conversacion, e)
 
     async def marcar_resuelta(conversacion: str) -> None:
         """La resolvieron: queda con la etiqueta, así el agente no le vuelve a hablar.
@@ -577,6 +599,60 @@ def crear_app(
             "memoria": "postgres" if config.modo == "produccion" else "sqlite",
         }
 
+    # -- Para el panel de administración (solo desde adentro de la red del servidor) -----------
+
+    def panel_autorizado(pedido: Request) -> JSONResponse | None:
+        """None si el pedido trae el secreto compartido con el panel; si no, la respuesta de error."""
+        esperado = (os.getenv("AGENTE_PANEL_TOKEN") or "").strip()
+        if len(esperado) < 16:
+            return JSONResponse({"error": "el panel no está configurado en el agente"}, status_code=503)
+        dado = pedido.headers.get("x-panel-token", "")
+        if not secrets.compare_digest(dado.encode("utf-8"), esperado.encode("utf-8")):
+            registro.warning("Llamada al panel con secreto equivocado")
+            return JSONResponse({"error": "no autorizado"}, status_code=401)
+        return None
+
+    @app.get("/panel/estado")
+    async def panel_estado(pedido: Request) -> JSONResponse:
+        """Lo que el panel necesita para mostrarse: el modelo, el prompt del repositorio y los ajustes que rigen."""
+        rechazo = panel_autorizado(pedido)
+        if rechazo:
+            return rechazo
+        base = {k: v for k, v in PanelEnVivo().valores(config).items()}  # lo del entorno, sin lo guardado
+        return JSONResponse(
+            {
+                "proveedor": config.proveedor,
+                "modelo": config.modelo,
+                "base": base,
+                "vivos": vivo(),
+                "prompt_base": leer_prompt(config.prompt_sistema),
+                "variables": list(VARIABLES),
+            }
+        )
+
+    @app.post("/panel/probar")
+    async def panel_probar(pedido: Request) -> JSONResponse:
+        """Una prueba suelta: contesta con el prompt que manda el panel, sin tocar ninguna conversación real."""
+        rechazo = panel_autorizado(pedido)
+        if rechazo:
+            return rechazo
+        cuerpo = await _leer_con_tope(pedido)
+        try:
+            datos = json.loads(cuerpo) if cuerpo else {}
+            prompt = str(datos["prompt"]).strip()
+            mensajes = [(str(m["rol"]), str(m["texto"])[:2000]) for m in datos["mensajes"]][-30:]
+        except Exception:
+            return JSONResponse({"error": "esperaba {prompt, mensajes: [{rol, texto}]}"}, status_code=400)
+        if not prompt or len(prompt) > 30000 or not mensajes or mensajes[-1][0] != "yo" or any(r not in ("yo", "agente") for r, _ in mensajes):
+            return JSONResponse({"error": "el prompt o la conversación no son válidos"}, status_code=400)
+        prompt = aplicar_datos(prompt, datos.get("datos") if isinstance(datos.get("datos"), dict) else vivos.datos())
+        try:
+            salida = await asyncio.to_thread(agente.probar, prompt, mensajes, vivo()["mensajesPorRespuesta"])
+        except Exception as e:
+            registro.error("Prueba del panel: %s: %s", type(e).__name__, e)
+            return JSONResponse({"error": f"{type(e).__name__}: {e}"}, status_code=502)
+        return JSONResponse(salida)
+
     @app.post("/reset/{token}")
     async def reset(token: str, pedido: Request) -> JSONResponse:
         """Le borra la memoria a una conversación, para volver a probar desde cero.
@@ -642,7 +718,7 @@ def crear_app(
         if evento.get("event") == "conversation_status_changed":
             id_conversacion = evento.get("id")
             if (
-                config.respetar_resueltas
+                vivo()["respetarResueltas"]
                 and str(evento.get("status") or "").strip().lower() == "resolved"
                 and not isinstance(id_conversacion, bool)
                 and str(id_conversacion or "").isdigit()
@@ -658,6 +734,21 @@ def crear_app(
             # que manda el propio agente vuelve como un evento más.
             return JSONResponse({"estado": "ignorado"})
 
+        ajustes = vivo()
+        if not ajustes["activo"]:
+            # Pausado desde el panel: el agente no contesta. Cada conversación pasa a una persona
+            # (la etiqueta) una vez, para que se vea en la bandeja.
+            if entrante.conversacion not in en_pausa:
+                en_pausa.add(entrante.conversacion)
+                en_segundo_plano(pasar_por_pausa(entrante.conversacion))
+            return JSONResponse({"estado": "pausado"})
+        # Solo lo que se guardó desde el panel pisa lo que ya traen el tope y los avisos.
+        guardados = vivos.ajustes()
+        if guardados.get("avisosEmail"):
+            avisos.para = str(guardados["avisosEmail"]).strip()
+        if "topeMensajesPorDia" in guardados:
+            tope.tope = max(0, int(guardados["topeMensajesPorDia"] or 0))
+
         decision = tope.anotar(entrante.conversacion)
         if decision == BLOQUEAR:
             en_segundo_plano(pasar_por_tope(entrante.conversacion))
@@ -672,7 +763,7 @@ def crear_app(
         # Lo que tarda (preguntar si ya se cerró con esa persona, bajar y leer
         # una foto o un audio, buscar un mensaje citado) va en segundo plano,
         # pero en SU lugar de la ráfaga: el orden es el de llegada.
-        revisar = config.respetar_resueltas and entrante.conversacion not in revisadas
+        revisar = vivo()["respetarResueltas"] and entrante.conversacion not in revisadas
         if revisar:
             revisadas.add(entrante.conversacion)
         leer = Lector.hay_que_leer(entrante)

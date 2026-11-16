@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import re
 import time
 from datetime import datetime, timezone
 from typing import Callable, Literal
@@ -27,6 +28,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 import acceso
+import agente_cliente
 import ajustes
 import almacen
 import historial as hist
@@ -83,6 +85,51 @@ class Categoria(BaseModel):
 
 class GuardarCategorias(BaseModel):
     categorias: list[Categoria] = Field(max_length=20)
+
+
+# Los datos del negocio que el prompt del agente puede usar como {{alias_pago}}. Es la misma lista que
+# tiene el agente (src/agente/panel_db.py): una prueba las compara.
+VARIABLES_DEL_AGENTE = ("alias_pago", "horario", "costo_envio", "dias_despacho", "politica_cambios")
+ETIQUETAS_DE_AJUSTES_DEL_AGENTE = {
+    "activo": "agente activo", "mensajesPorRespuesta": "mensajes por respuesta", "topeMensajesPorDia": "tope por día",
+    "respetarResueltas": "chats resueltos", "soloElPrimerMensaje": "solo el primer mensaje", "avisosEmail": "mail de avisos",
+}
+
+
+class PromptNuevo(BaseModel):
+    texto: str = Field(min_length=20, max_length=30000)
+    nota: str = Field(default="", max_length=120)
+
+
+class Restaurar(BaseModel):
+    id: int
+
+
+class AjustesDelAgente(BaseModel):
+    activo: bool = True
+    mensajesPorRespuesta: int = Field(ge=1, le=5)
+    topeMensajesPorDia: int = Field(ge=0, le=1000)
+    respetarResueltas: bool = False
+    soloElPrimerMensaje: bool = False
+    avisosEmail: str = Field(default="", max_length=120, pattern=r"^(|[^@\s]+@[^@\s]+\.[^@\s]+)$")
+
+
+class DatosDelNegocio(BaseModel):
+    alias_pago: str = Field(default="", max_length=200)
+    horario: str = Field(default="", max_length=200)
+    costo_envio: str = Field(default="", max_length=200)
+    dias_despacho: str = Field(default="", max_length=200)
+    politica_cambios: str = Field(default="", max_length=300)
+
+
+class MensajeDePrueba(BaseModel):
+    rol: Literal["yo", "agente"]
+    texto: str = Field(min_length=1, max_length=2000)
+
+
+class ProbarAgente(BaseModel):
+    prompt: str = Field(min_length=20, max_length=30000)
+    mensajes: list[MensajeDePrueba] = Field(min_length=1, max_length=30)
 
 
 class SubirLogo(BaseModel):
@@ -169,7 +216,12 @@ ETIQUETAS_DE_AJUSTES = {
 
 
 def crear_router(
-    historial, invalidar_cache: Callable[[], None], almacen_, categorias_base: list[dict] | None = None, web_defecto: Callable[[], dict] | None = None
+    historial,
+    invalidar_cache: Callable[[], None],
+    almacen_,
+    categorias_base: list[dict] | None = None,
+    web_defecto: Callable[[], dict] | None = None,
+    agente_=None,
 ) -> APIRouter:
     router = APIRouter(prefix="/admin/api")
     nombres: dict[int, str] = {}  # los últimos nombres vistos, para el historial
@@ -549,6 +601,113 @@ def crear_router(
         anotar(hist.lote_nuevo(), usuario, [{"accion": "config", "producto_id": 0, "producto": "Web mayorista", "talle": "logo quitado", "antes": None, "despues": 0}])
         invalidar_cache()
         return {"logo": False}
+
+    # -- El agente de WhatsApp --
+
+    def _variables_usadas(texto: str) -> list[str]:
+        return list(dict.fromkeys(re.findall(r"\{\{(\w+)\}\}", texto)))
+
+    def _datos_guardados() -> dict:
+        guardados = almacen_.config("agente_datos") or {}
+        return {k: str(guardados.get(k) or "") for k in VARIABLES_DEL_AGENTE}
+
+    def _estado_del_agente() -> tuple[dict | None, str]:
+        """Lo que dice el agente de sí mismo (modelo, prompt del repositorio, ajustes de entorno) o por qué no contesta."""
+        if agente_ is None:
+            return None, "El panel no está conectado al agente (falta AGENTE_URL o AGENTE_PANEL_TOKEN)."
+        try:
+            return agente_.estado(), ""
+        except agente_cliente.ErrorDelAgente as e:
+            return None, str(e)
+
+    @router.get("/agente")
+    def agente_ver(usuario: str = Depends(usuario_actual)) -> dict:
+        """Todo lo que muestra la pestaña del agente."""
+        estado, error = _estado_del_agente()
+        activo = almacen_.prompt_activo()
+        sin_publicar = activo is None
+        prompt = activo or ({"id": None, "texto": estado["prompt_base"], "usuario": "", "nota": "Todavía no se publicó ninguna versión: es la del repositorio.", "fecha": None, "activa": False} if estado else None)
+        base = (estado or {}).get("base") or {}
+        guardados = almacen_.config("agente_ajustes") or {}
+        ajustes_ = {**base, **{k: v for k, v in guardados.items() if k in ETIQUETAS_DE_AJUSTES_DEL_AGENTE}} if base else {**guardados}
+        return {
+            "agente": {"conectado": estado is not None, "error": error, "modelo": (estado or {}).get("modelo", ""), "proveedor": (estado or {}).get("proveedor", "")},
+            "prompt": prompt,
+            "sinPublicar": sin_publicar,
+            "versiones": almacen_.prompt_versiones(),
+            "datos": _datos_guardados(),
+            "variables": list(VARIABLES_DEL_AGENTE),
+            "ajustes": ajustes_,
+            "ajustesBase": base,
+        }
+
+    @router.get("/agente/versiones/{id}")
+    def agente_version(id: int, usuario: str = Depends(usuario_actual)) -> dict:
+        v = almacen_.prompt_version(id)
+        if v is None:
+            raise HTTPException(404, "No existe esa versión.")
+        return v
+
+    def _publicar(usuario: str, texto: str, nota: str) -> dict:
+        texto = texto.strip()
+        desconocidas = [v for v in _variables_usadas(texto) if v not in VARIABLES_DEL_AGENTE]
+        if desconocidas:
+            raise HTTPException(422, "El prompt usa datos que no existen: " + ", ".join("{{" + v + "}}" for v in desconocidas) + ".")
+        activo = almacen_.prompt_activo()
+        if activo and activo["texto"].strip() == texto:
+            raise HTTPException(422, "No hay cambios para publicar: es igual a la versión que está en uso.")
+        nuevo = almacen_.publicar_prompt(texto, usuario, nota.strip())
+        datos = _datos_guardados()
+        vacias = [v for v in _variables_usadas(texto) if not datos.get(v, "").strip()]
+        anotar(hist.lote_nuevo(), usuario, [{"accion": "config", "producto_id": 0, "producto": "Prompt del agente", "talle": f"versión {nuevo}" + (f": {nota.strip()}" if nota.strip() else ""), "antes": None, "despues": nuevo}])
+        return {"id": nuevo, "vacias": vacias}
+
+    @router.put("/agente/prompt")
+    def agente_publicar(datos: PromptNuevo, usuario: str = Depends(usuario_actual)) -> dict:
+        """Publica una versión nueva del prompt: el agente la usa en menos de medio minuto."""
+        return _publicar(usuario, datos.texto, datos.nota)
+
+    @router.post("/agente/prompt/restaurar")
+    def agente_restaurar(datos: Restaurar, usuario: str = Depends(usuario_actual)) -> dict:
+        """Vuelve a una versión anterior: se publica como una versión nueva, así el historial no se pierde."""
+        v = almacen_.prompt_version(datos.id)
+        if v is None:
+            raise HTTPException(404, "No existe esa versión.")
+        return _publicar(usuario, v["texto"], f"Restaurada de la versión {datos.id}")
+
+    @router.put("/agente/ajustes")
+    def agente_guardar_ajustes(datos: AjustesDelAgente, usuario: str = Depends(usuario_actual)) -> dict:
+        # "Antes" es lo que regía: lo del entorno del agente con lo guardado encima.
+        estado, _ = _estado_del_agente()
+        antes = {**((estado or {}).get("base") or {}), **(almacen_.config("agente_ajustes") or {})}
+        nuevo = {**datos.model_dump(), "avisosEmail": datos.avisosEmail.strip()}
+        almacen_.guardar_config("agente_ajustes", nuevo)
+        cambiados = [ETIQUETAS_DE_AJUSTES_DEL_AGENTE[k] for k in ETIQUETAS_DE_AJUSTES_DEL_AGENTE if antes.get(k) != nuevo.get(k)]
+        if cambiados:
+            anotar(hist.lote_nuevo(), usuario, [{"accion": "config", "producto_id": 0, "producto": "Ajustes del agente", "talle": ", ".join(cambiados)[:200], "antes": None, "despues": len(cambiados)}])
+        return {"guardado": True, "cambios": cambiados}
+
+    @router.put("/agente/datos")
+    def agente_guardar_datos(datos: DatosDelNegocio, usuario: str = Depends(usuario_actual)) -> dict:
+        antes = _datos_guardados()
+        nuevo = {k: " ".join(v.split()) for k, v in datos.model_dump().items()}
+        almacen_.guardar_config("agente_datos", nuevo)
+        cambiados = [k for k in VARIABLES_DEL_AGENTE if antes.get(k) != nuevo.get(k)]
+        if cambiados:
+            anotar(hist.lote_nuevo(), usuario, [{"accion": "config", "producto_id": 0, "producto": "Datos del negocio (agente)", "talle": ", ".join(cambiados), "antes": None, "despues": len(cambiados)}])
+        return {"guardado": True, "cambios": cambiados}
+
+    @router.post("/agente/probar")
+    def agente_probar(datos: ProbarAgente, usuario: str = Depends(usuario_actual)) -> dict:
+        """Una prueba con el prompt del editor (sin publicar), el stock y los datos de verdad."""
+        if datos.mensajes[-1].rol != "yo":
+            raise HTTPException(422, "El último mensaje tiene que ser de la persona.")
+        if agente_ is None:
+            raise HTTPException(503, "El panel no está conectado al agente.")
+        try:
+            return agente_.probar(datos.prompt, [m.model_dump() for m in datos.mensajes], _datos_guardados())
+        except agente_cliente.ErrorDelAgente as e:
+            raise HTTPException(502, str(e)) from None
 
     # -- Pedidos --
 

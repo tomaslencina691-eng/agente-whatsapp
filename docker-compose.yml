@@ -103,6 +103,10 @@ services:
       TIENDANUBE_ACCESS_TOKEN: ${TIENDANUBE_ACCESS_TOKEN:-}
       TIENDANUBE_CONTACTO: ${TIENDANUBE_CONTACTO:-}
       TIENDA_URL: ${TIENDA_URL:-}
+      # El secreto que comparte con el panel del mayorista (el mismo valor en los dos servicios).
+      # Con él el panel prueba el prompt y ve el estado del agente, por la red interna. Sin él, esas
+      # puertas quedan apagadas. Al menos 16 caracteres al azar.
+      AGENTE_PANEL_TOKEN: ${AGENTE_PANEL_TOKEN:-}
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8000/salud"]
       interval: 30s
@@ -175,6 +179,10 @@ services:
       ADMIN_USUARIO: ${ADMIN_USUARIO:-}
       ADMIN_CLAVE: ${ADMIN_CLAVE:-}
       SESION_SECRETO: ${SESION_SECRETO:-}
+      # Para que el panel hable con el agente (probar el prompt, ver su estado): la dirección
+      # interna y el secreto compartido (el mismo AGENTE_PANEL_TOKEN del servicio agente).
+      AGENTE_URL: ${AGENTE_URL:-http://agente:8000}
+      AGENTE_PANEL_TOKEN: ${AGENTE_PANEL_TOKEN:-}
       # Número al que llega el pedido (con código de país, sin + ni espacios).
       MAYORISTA_WHATSAPP: ${MAYORISTA_WHATSAPP:-}
       # Cada cuánto se vuelven a leer de Tiendanube los nombres y las fotos.

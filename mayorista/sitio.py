@@ -43,6 +43,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import admin
+import agente_cliente
 import ajustes
 import almacen
 import historial as hist
@@ -341,7 +342,7 @@ async def _vida(_app: FastAPI):
 
 
 app = FastAPI(title="Mayorista", docs_url=None, redoc_url=None, lifespan=_vida)
-app.include_router(admin.crear_router(_historial, _invalidar_cache, _almacen, CATEGORIAS, _ajustes_de_siempre))
+app.include_router(admin.crear_router(_historial, _invalidar_cache, _almacen, CATEGORIAS, _ajustes_de_siempre, agente_cliente.crear()))
 
 
 @app.middleware("http")
