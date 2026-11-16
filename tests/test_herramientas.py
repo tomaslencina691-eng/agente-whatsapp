@@ -151,3 +151,94 @@ def test_una_foto_webp_no_se_ofrece():
     }
 
     assert "[foto:" not in herramientas._describir_producto(producto)
+
+
+# -- Stock del mayorista ------------------------------------------------------
+#
+# El stock que se ofrece es el propio del mayorista (tabla mayorista_stock), no el
+# de la tienda: Tiendanube aporta los nombres, el precio y el link.
+
+
+def camiseta(id, nombre, stock_tienda=9, **extra):
+    return {
+        "id": id,
+        "name": {"es": nombre},
+        "canonical_url": f"https://tienda.example.com/productos/{id}/",
+        "has_stock": stock_tienda > 0,
+        "variants": [{"price": "75000.00", "stock": stock_tienda, "values": [{"es": "L"}]}],
+        **extra,
+    }
+
+
+def test_con_stock_del_mayorista_los_talles_y_las_unidades_salen_de_ahi():
+    p = camiseta(1, "Barcelona 26/27", stock_tienda=0)  # la tienda dice que no tiene nada
+
+    texto = herramientas._describir_producto(p, {1: {"XL": 8, "M": 2, "S": 0, "L": 7}})
+
+    assert "Talles con stock: M (2 u.), L (7 u.), XL (8 u.)" in texto, "en orden de talle y sin los talles en cero"
+    assert "Sin stock" not in texto
+
+
+def test_un_modelo_de_la_tienda_que_no_esta_en_el_mayorista_no_se_ofrece():
+    texto = herramientas._describir_producto(camiseta(2, "River Plate"), {1: {"M": 3}})
+
+    assert "No figura en el catálogo mayorista" in texto
+    assert "Talles con stock" not in texto, "aunque la tienda tenga stock, el mayorista no lo ofrece"
+
+
+def test_un_modelo_del_mayorista_en_cero_dice_que_no_hay(monkeypatch):
+    monkeypatch.setattr(herramientas, "_buscar_alternativas", lambda p, maximo=3, stock=None: [])
+
+    texto = herramientas._describir_producto(camiseta(1, "Barcelona"), {1: {"M": 0}})
+
+    assert "Sin stock por ahora." in texto
+
+
+def test_las_alternativas_tambien_salen_del_stock_del_mayorista(monkeypatch):
+    barcelona = camiseta(1, "Barcelona 26/27 Titular", stock_tienda=5)
+    madrid = camiseta(2, "Barcelona 25/26 Titular", stock_tienda=0)  # la tienda no tiene, el mayorista sí
+    otros = [camiseta(3, "Boca Juniors Retro", stock_tienda=5), camiseta(4, "Argentina Mundial", stock_tienda=5), camiseta(5, "River Plate Suplente", stock_tienda=5)]
+    monkeypatch.setattr(herramientas, "_catalogo_completo", lambda: [barcelona, madrid, *otros])
+
+    alternativas = herramientas._buscar_alternativas(barcelona, stock={1: {"M": 0}, 2: {"L": 4}})
+
+    assert alternativas and "Barcelona 25/26" in alternativas[0]
+
+
+def test_sin_base_se_usa_el_stock_de_la_tienda_como_antes(monkeypatch):
+    monkeypatch.delenv("POSTGRES_DSN", raising=False)
+
+    assert herramientas._stock_mayorista() is None
+    assert "Talles con stock: L" in herramientas._describir_producto(camiseta(1, "Boca", stock_tienda=3))
+
+
+def test_buscar_producto_usa_el_stock_del_mayorista(monkeypatch):
+    monkeypatch.setenv("TIENDANUBE_STORE_ID", "1")
+    monkeypatch.setenv("TIENDANUBE_ACCESS_TOKEN", "x")
+    monkeypatch.setattr(herramientas, "_catalogo_completo", lambda: [camiseta(1, "Barcelona 26/27", stock_tienda=0)])
+    monkeypatch.setattr(herramientas, "_stock_mayorista", lambda: {1: {"L": 7}})
+
+    texto = herramientas.buscar_producto.invoke({"consulta": "barcelona"})
+
+    assert "Barcelona 26/27" in texto and "L (7 u.)" in texto
+
+
+def test_si_la_base_del_mayorista_falla_se_avisa_en_vez_de_inventar_stock(monkeypatch):
+    monkeypatch.setenv("TIENDANUBE_STORE_ID", "1")
+    monkeypatch.setenv("TIENDANUBE_ACCESS_TOKEN", "x")
+
+    def cae():
+        raise OSError("sin base")
+
+    monkeypatch.setattr(herramientas, "_stock_mayorista", cae)
+
+    texto = herramientas.buscar_producto.invoke({"consulta": "barcelona"})
+
+    assert "No se pudo consultar" in texto and "sin base" in texto
+
+
+def test_el_catalogo_se_trae_completo_aunque_pase_de_una_pagina(monkeypatch):
+    paginas = {1: [{"id": i} for i in range(200)], 2: [{"id": 200 + i} for i in range(30)]}
+    monkeypatch.setattr(herramientas, "_tiendanube_pedir", lambda ruta, parametros: paginas.get(parametros["page"], []))
+
+    assert len(herramientas._catalogo_completo()) == 230

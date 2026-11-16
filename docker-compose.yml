@@ -5,8 +5,8 @@
 #             por cada app).
 #   agente    El webhook que atiende WhatsApp (webhook_chatwoot.py).
 #   pruebas   La plataforma de pruebas, con usuario y clave (servidor_nube.py). Opcional.
-#   mayorista La web mayorista: catálogo con stock de Tiendanube y pedido por
-#             WhatsApp (carpeta mayorista/).
+#   mayorista La web mayorista: catálogo con stock PROPIO y pedido por WhatsApp
+#             (carpeta mayorista/).
 #   (respaldo) Copia diaria a un bucket externo: está APARTE, en
 #             docker-compose.respaldo.yml, y hoy no se despliega.
 #
@@ -152,8 +152,9 @@ services:
 
   mayorista:
     # La web mayorista (carrito que manda el pedido por WhatsApp) y su panel de
-    # administración en /admin. El stock y los talles son los de Tiendanube; en
-    # Postgres solo se guarda el historial de cambios del panel.
+    # administración en /admin. El stock es PROPIO del mayorista y vive en Postgres
+    # (tablas mayorista_stock y mayorista_pedidos, más el historial de cambios):
+    # Tiendanube solo aporta nombres, fotos y categorías, y se lee, nunca se escribe.
     build:
       context: ./mayorista
       dockerfile: Dockerfile
@@ -176,8 +177,11 @@ services:
       SESION_SECRETO: ${SESION_SECRETO:-}
       # Número al que llega el pedido (con código de país, sin + ni espacios).
       MAYORISTA_WHATSAPP: ${MAYORISTA_WHATSAPP:-}
-      # Cada cuánto se vuelve a leer Tiendanube.
+      # Cada cuánto se vuelven a leer de Tiendanube los nombres y las fotos.
       MAYORISTA_CACHE_SEGUNDOS: ${MAYORISTA_CACHE_SEGUNDOS:-300}
+      # Solo la primera vez: con el stock propio vacío, copia el de la tienda al arrancar.
+      # Después se deja vacío (también se puede hacer desde el panel).
+      MAYORISTA_CARGAR_STOCK_INICIAL: ${MAYORISTA_CARGAR_STOCK_INICIAL:-}
       # "true": no se puede pedir más unidades de un talle que las que hay.
       MAYORISTA_LIMITAR_STOCK: ${MAYORISTA_LIMITAR_STOCK:-true}
       PUERTO: "8000"

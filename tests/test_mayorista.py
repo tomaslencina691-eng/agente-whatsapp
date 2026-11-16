@@ -18,6 +18,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "mayorista"))
 
+import almacen  # noqa: E402
 import sitio as servidor  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -44,8 +45,9 @@ def producto(
 
 @pytest.fixture(autouse=True)
 def cache_limpia():
-    servidor._cache.update(t=0.0, catalogo=None, imagenes={})
+    servidor._cache.update(t=0.0, productos=None, imagenes={})
     servidor.tn._fotos.clear()
+    servidor._intentos.clear()
     yield
 
 
@@ -73,7 +75,15 @@ def cliente():
     return TestClient(servidor.app)
 
 
-# -- Qué entra al catálogo ----------------------------------------------------
+@pytest.fixture
+def propio(monkeypatch):
+    """El stock propio del mayorista (en producción es Postgres)."""
+    a = almacen.AlmacenMemoria()
+    monkeypatch.setattr(servidor, "_almacen", a)
+    return a
+
+
+# -- Qué entra al catálogo (sin base propia: el stock de la tienda, solo en desarrollo) ------
 
 
 def test_entran_los_publicados_con_stock():
@@ -276,3 +286,131 @@ def test_el_filtro_de_version_se_puede_apagar(cliente, monkeypatch):
     servidor._cache["t"] = 0.0
 
     assert cliente.get("/api/catalogo").json()["filtroVersion"] is False
+
+
+# -- Con stock propio ------------------------------------------------------------
+
+
+def test_con_stock_propio_el_catalogo_usa_ese_stock_y_no_el_de_la_tienda(cliente, monkeypatch, propio):
+    monkeypatch.setattr(servidor, "_traer_productos", lambda: [producto()])  # la tienda dice M2 S1 XL3
+    propio.cargar([(1, "S", 0), (1, "M", 9), (1, "L", 4)])
+
+    talles = cliente.get("/api/catalogo").json()["productos"][0]["talles"]
+
+    assert [(t["talle"], t["stock"]) for t in talles] == [("M", 9), ("L", 4)]
+
+
+def test_un_modelo_de_la_tienda_que_no_esta_en_el_mayorista_no_se_ofrece(cliente, monkeypatch, propio):
+    monkeypatch.setattr(servidor, "_traer_productos", lambda: [producto(id=1), producto(id=2, nombre="River Plate - Titular")])
+    propio.cargar([(1, "M", 3)])
+
+    ids = [p["id"] for p in cliente.get("/api/catalogo").json()["productos"]]
+
+    assert ids == [1]
+
+
+def test_un_modelo_del_mayorista_sin_stock_no_se_ofrece(cliente, monkeypatch, propio):
+    monkeypatch.setattr(servidor, "_traer_productos", lambda: [producto()])
+    propio.cargar([(1, "M", 0)])
+
+    assert cliente.get("/api/catalogo").json()["productos"] == []
+
+
+def test_un_modelo_oculto_en_la_tienda_no_se_ofrece_aunque_tenga_stock_propio(cliente, monkeypatch, propio):
+    monkeypatch.setattr(servidor, "_traer_productos", lambda: [producto(publicado=False)])
+    propio.cargar([(1, "M", 3)])
+
+    assert cliente.get("/api/catalogo").json()["productos"] == []
+
+
+def test_el_stock_se_actualiza_al_instante_sin_esperar_la_cache_de_la_tienda(cliente, monkeypatch, propio):
+    llamadas = []
+    monkeypatch.setattr(servidor, "_traer_productos", lambda: llamadas.append(1) or [producto()])
+    propio.cargar([(1, "M", 5)])
+    cliente.get("/api/catalogo")
+    fila = propio.filas()[0]
+
+    propio.aplicar([(fila["id"], 5, 2)], [])
+    talles = cliente.get("/api/catalogo").json()["productos"][0]["talles"]
+
+    assert talles == [{"talle": "M", "stock": 2}]
+    assert len(llamadas) == 1, "la tienda se leyó una sola vez: solo el stock es fresco"
+
+
+def test_si_la_base_falla_el_catalogo_avisa_en_vez_de_mostrar_stock_viejo(cliente, monkeypatch, propio):
+    monkeypatch.setattr(servidor, "_traer_productos", lambda: [producto()])
+
+    def cae(*a, **k):
+        raise OSError("sin base")
+
+    monkeypatch.setattr(propio, "filas", cae)
+
+    assert cliente.get("/api/catalogo").status_code == 503
+
+
+# -- Pedidos desde la web ---------------------------------------------------------
+
+
+def pedido_web(**extra):
+    return {"codigo": "A-7K3QX", "items": [{"producto": 1, "talle": "M", "cantidad": 2}], "nombre": "Pablo", "negocio": "Kiosco", "notas": "", **extra}
+
+
+def test_un_pedido_se_guarda_con_su_codigo_y_no_descuenta_stock(cliente, monkeypatch, propio):
+    monkeypatch.setattr(servidor, "_traer_productos", lambda: [producto()])
+    propio.cargar([(1, "M", 5)])
+    cliente.get("/api/catalogo")  # trae los nombres
+
+    r = cliente.post("/api/pedido", json=pedido_web(items=[{"producto": 1, "talle": "M", "cantidad": 2}, {"producto": 1, "talle": "S", "cantidad": 4}]))
+
+    assert r.status_code == 200 and r.json() == {"ok": True, "codigo": "A-7K3QX", "nuevo": True}
+    p = propio.pedido("A-7K3QX")
+    assert (p["estado"], p["unidades"]) == ("nuevo", 6)
+    assert p["total"] == 6 * 28000, "6 camisetas entran en el primer tramo"
+    assert p["datos"]["items"][0]["nombre"] == "Boca Juniors - Titular 26/27"
+    assert (p["datos"]["nombre"], p["datos"]["negocio"]) == ("Pablo", "Kiosco")
+    assert propio.filas()[0]["cantidad"] == 5, "el stock se descuenta recién cuando el equipo confirma"
+
+
+def test_mandar_dos_veces_el_mismo_pedido_no_lo_duplica(cliente, propio):
+    cliente.post("/api/pedido", json=pedido_web())
+
+    r = cliente.post("/api/pedido", json=pedido_web())
+
+    assert r.status_code == 200 and r.json()["nuevo"] is False
+    assert len(propio.pedidos()) == 1
+
+
+@pytest.mark.parametrize("codigo", ["", "a-7k3qx", "A-7K3Q", "A-7K3QXX", "B-7K3QX", "A-7K 3Q"])
+def test_un_codigo_con_otro_formato_no_se_acepta(cliente, propio, codigo):
+    assert cliente.post("/api/pedido", json=pedido_web(codigo=codigo)).status_code == 422
+
+
+@pytest.mark.parametrize("items", [[], [{"producto": 1, "talle": "M", "cantidad": 0}], [{"producto": 1, "talle": "", "cantidad": 1}], [{"producto": 1, "talle": "M", "cantidad": 1000}]])
+def test_un_pedido_vacio_o_con_cantidades_raras_no_se_acepta(cliente, propio, items):
+    assert cliente.post("/api/pedido", json=pedido_web(items=items)).status_code == 422
+
+
+def test_hay_un_tope_de_pedidos_por_hora_desde_la_misma_direccion(cliente, propio, monkeypatch):
+    monkeypatch.setattr(servidor, "PEDIDOS_POR_HORA", 2)
+
+    estados = [cliente.post("/api/pedido", json=pedido_web(codigo=f"A-0000{i}")).status_code for i in range(3)]
+
+    assert estados == [200, 200, 429]
+
+
+def test_sin_base_los_pedidos_responden_503_y_la_web_igual_manda_el_whatsapp(cliente, monkeypatch):
+    monkeypatch.setattr(servidor, "_almacen", None)
+
+    assert cliente.post("/api/pedido", json=pedido_web()).status_code == 503
+
+
+def test_el_precio_total_estimado_usa_el_tramo_que_corresponde(cliente, propio):
+    cliente.post("/api/pedido", json=pedido_web(items=[{"producto": 1, "talle": "M", "cantidad": 12}]))
+
+    assert propio.pedido("A-7K3QX")["total"] == 12 * 25000
+
+
+def test_un_pedido_de_un_modelo_desconocido_se_guarda_con_un_nombre_generico(cliente, propio):
+    cliente.post("/api/pedido", json=pedido_web(items=[{"producto": 77, "talle": "M", "cantidad": 1}]))
+
+    assert propio.pedido("A-7K3QX")["datos"]["items"][0]["nombre"] == "Modelo 77"

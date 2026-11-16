@@ -1,10 +1,13 @@
-"""Pruebas del panel de administración del mayorista. No salen a internet.
+"""Pruebas del panel de administración del mayorista. No salen a internet ni usan base.
 
-Tiendanube se reemplaza por una tienda de mentira en memoria: lo que se prueba
-es lo nuestro. Lo más importante de este archivo:
+Tiendanube se reemplaza por una tienda de mentira en memoria y la base por
+`AlmacenMemoria`: lo que se prueba es lo nuestro. Lo más importante de este archivo:
 
-  · `test_un_conflicto_no_aplica_ni_los_cambios_buenos`: si entra una venta
-    mientras alguien edita la planilla, no se pisa el stock.
+  · El stock del mayorista es PROPIO: tocarlo no cambia la tienda, y una venta en
+    la tienda no lo cambia a él.
+  · `test_un_conflicto_no_aplica_ni_los_cambios_buenos`: si entra un pedido
+    confirmado mientras alguien edita la planilla, no se pisa el stock.
+  · Confirmar un pedido que no alcanza no descuenta nada, ni de lo que sí había.
   · Todo lo que no es el login exige sesión.
 
     pytest
@@ -12,7 +15,6 @@ es lo nuestro. Lo más importante de este archivo:
 
 from __future__ import annotations
 
-import base64
 import sys
 import time
 from pathlib import Path
@@ -23,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "mayorista"))
 
 import acceso  # noqa: E402
 import admin  # noqa: E402
+import almacen  # noqa: E402
 import historial as hist  # noqa: E402
 import tn  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
@@ -30,70 +33,46 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 CLAVE = "clave-de-prueba-123"
 H = {"x-mayorista": "1"}
-PNG = base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"0" * 50).decode()
 
 
 class TiendaFalsa:
-    """Una tienda en memoria con la forma que devuelve la API de Tiendanube."""
+    """Una tienda en memoria con la forma que devuelve la API de Tiendanube (solo lectura)."""
 
     def __init__(self):
         self.productos = {
             1: self._producto(1, "Boca Juniors - Titular 26/27", True, {"S": 0, "M": 2, "L": 3}),
             2: self._producto(2, "Argentina Retro", False, {"XL": 0}),  # oculto y sin stock
+            3: self._producto(3, "River Plate - Titular 26/27", True, {"S": 1, "M": 4}),  # nuevo: la tienda lo tiene, el mayorista no
+            4: self._producto(4, "Sin foto", True, {"M": 5}, fotos=False),
         }
-        self.creados = []
-        self._siguiente = 100
 
     @staticmethod
-    def _producto(id, nombre, publicado, talles):
+    def _producto(id, nombre, publicado, talles, fotos=True):
         return {
             "id": id,
             "name": {"es": nombre},
             "published": publicado,
             "categories": [{"name": {"es": "FÚTBOL ARGENTINO"}}],
-            "images": [{"position": 1, "src": "https://acdn-us.mitiendanube.com/x/a-1024-1024.png"}],
+            "images": [{"position": 1, "src": "https://acdn-us.mitiendanube.com/x/a-1024-1024.png"}] if fotos else [],
             "variants": [
-                {"id": id * 10 + i, "price": "75000.00", "stock": s, "stock_management": True,
-                 "values": [{"es": t}], "inventory_levels": [{"location_id": "LOC", "stock": s}]}
+                {"id": id * 10 + i, "price": "75000.00", "stock": s, "stock_management": True, "values": [{"es": t}]}
                 for i, (t, s) in enumerate(talles.items())
             ],
         }
-
-    def stock(self, producto, talle):
-        return next(v["stock"] for v in self.productos[producto]["variants"] if v["values"][0]["es"] == talle)
 
     def vender(self, producto, talle, n=1):
         for v in self.productos[producto]["variants"]:
             if v["values"][0]["es"] == talle:
                 v["stock"] -= n
 
+    def stock(self, producto, talle):
+        return next(v["stock"] for v in self.productos[producto]["variants"] if v["values"][0]["es"] == talle)
+
     def instalar(self, monkeypatch):
         monkeypatch.setattr(tn, "TIENDA", "1")
         monkeypatch.setattr(tn, "TOKEN", "token")
         monkeypatch.setattr(tn, "todos_los_productos", lambda: list(self.productos.values()))
         monkeypatch.setattr(tn, "productos_por_id", lambda ids: {i: self.productos[i] for i in ids if i in self.productos})
-        monkeypatch.setattr(tn, "categorias", lambda: [{"id": 5, "name": {"es": "FÚTBOL ARGENTINO"}, "parent": None}, {"id": 6, "name": {"es": "BOCA"}, "parent": 5}])
-        monkeypatch.setattr(tn, "actualizar_stock", self._actualizar)
-        monkeypatch.setattr(tn, "crear_variante", self._crear_variante)
-        monkeypatch.setattr(tn, "crear_producto", self._crear_producto)
-
-    def _actualizar(self, cambios):
-        for producto, variante, stock, _ in cambios:
-            for v in self.productos[producto]["variants"]:
-                if v["id"] == variante:
-                    v["stock"] = stock
-
-    def _crear_variante(self, producto, talle, stock, precio):
-        self._siguiente += 1
-        self.productos[producto]["variants"].append(
-            {"id": self._siguiente, "price": precio, "stock": stock, "stock_management": True, "values": [{"es": talle}]}
-        )
-        return {}
-
-    def _crear_producto(self, **datos):
-        self._siguiente += 1
-        self.creados.append(datos)
-        return {"id": self._siguiente}
 
 
 @pytest.fixture
@@ -109,18 +88,26 @@ def memoria():
 
 
 @pytest.fixture
+def alm():
+    """El mayorista arranca con los modelos 1 y 2 (copiados de la tienda): el 3 todavía no está."""
+    a = almacen.AlmacenMemoria()
+    a.cargar([(1, "S", 0), (1, "M", 2), (1, "L", 3), (2, "XL", 0)])
+    return a
+
+
+@pytest.fixture
 def invalidaciones():
     return []
 
 
 @pytest.fixture
-def cliente(monkeypatch, tienda, memoria, invalidaciones):
+def cliente(monkeypatch, tienda, memoria, alm, invalidaciones):
     monkeypatch.setattr(acceso, "USUARIO", "leo")
     monkeypatch.setattr(acceso, "CLAVE", CLAVE)
     monkeypatch.setattr(acceso, "SECRETO", "s" * 40)
     acceso._fallos.clear()
     app = FastAPI()
-    app.include_router(admin.crear_router(memoria, lambda: invalidaciones.append(1)))
+    app.include_router(admin.crear_router(memoria, lambda: invalidaciones.append(1), alm))
     return TestClient(app)
 
 
@@ -131,19 +118,38 @@ def sesion(cliente):
     return cliente
 
 
-def v(tienda, producto, talle):
-    return next(x for x in tienda.productos[producto]["variants"] if x["values"][0]["es"] == talle)
+def fila(alm, producto, talle):
+    return next(f for f in alm.filas([producto]) if f["talle"] == talle)
 
 
-def cambio(tienda, producto, talle, despues, antes=None):
-    var = v(tienda, producto, talle)
-    return {"tipo": "stock", "producto": producto, "variante": var["id"], "antes": var["stock"] if antes is None else antes, "despues": despues}
+def hay(alm, producto, talle):
+    return fila(alm, producto, talle)["cantidad"]
+
+
+def cambio(alm, producto, talle, despues, antes=None):
+    f = fila(alm, producto, talle)
+    return {"tipo": "stock", "producto": producto, "variante": f["id"], "antes": f["cantidad"] if antes is None else antes, "despues": despues}
+
+
+def pedido(alm, codigo, *items, estado="nuevo"):
+    """Un pedido de la web: items = (modelo, talle, cantidad)."""
+    datos = {"items": [{"producto": p, "talle": t, "cantidad": n, "nombre": "Boca Juniors - Titular 26/27"} for p, t, n in items], "nombre": "Pablo", "negocio": "Kiosco", "notas": ""}
+    alm.crear_pedido(codigo, datos, sum(n for _, _, n in items), 100000)
+    if estado != "nuevo":
+        alm._pedidos[codigo]["estado"] = estado
 
 
 # -- Entrar -------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("metodo, ruta", [("get", "/admin/api/stock"), ("get", "/admin/api/historial"), ("get", "/admin/api/categorias"), ("post", "/admin/api/stock/aplicar"), ("post", "/admin/api/productos")])
+@pytest.mark.parametrize(
+    "metodo, ruta",
+    [
+        ("get", "/admin/api/stock"), ("get", "/admin/api/historial"), ("get", "/admin/api/pedidos"), ("get", "/admin/api/tienda/nuevos"),
+        ("post", "/admin/api/stock/aplicar"), ("post", "/admin/api/pedidos/A-AAAAA/confirmar"), ("post", "/admin/api/tienda/incluir"),
+        ("post", "/admin/api/tienda/cargar-stock"),
+    ],
+)
 def test_sin_sesion_no_se_entra_a_nada(cliente, metodo, ruta):
     r = getattr(cliente, metodo)(ruta, headers=H, **({"json": {}} if metodo == "post" else {}))
 
@@ -214,154 +220,182 @@ def test_un_secreto_corto_apaga_el_panel(cliente, monkeypatch):
     assert cliente.post("/admin/api/login", json={"usuario": "leo", "clave": CLAVE}, headers=H).status_code == 503
 
 
-def test_los_cambios_exigen_el_header_propio(sesion, tienda):
+def test_los_cambios_exigen_el_header_propio(sesion, alm):
     """Es lo que impide que otra web mande cambios desde tu navegador."""
-    r = sesion.post("/admin/api/stock/aplicar", json={"cambios": [cambio(tienda, 1, "M", 5)]})
+    r = sesion.post("/admin/api/stock/aplicar", json={"cambios": [cambio(alm, 1, "M", 5)]})
 
     assert r.status_code == 403
-    assert tienda.stock(1, "M") == 2
+    assert hay(alm, 1, "M") == 2
 
 
 # -- Ver ----------------------------------------------------------------------
 
 
-def test_la_planilla_trae_todos_los_modelos_tambien_los_ocultos_y_sin_stock(sesion):
+def test_la_planilla_trae_solo_los_modelos_del_mayorista_con_su_stock_propio(sesion):
     r = sesion.get("/admin/api/stock")
 
     productos = {p["id"]: p for p in r.json()["productos"]}
-    assert set(productos) == {1, 2}
+    assert set(productos) == {1, 2}, "el modelo 3 está en la tienda pero todavía no en el mayorista"
     assert productos[2]["publicado"] is False
-    assert [x["talle"] for x in productos[1]["variantes"]] == ["S", "M", "L"]
+    assert [(x["talle"], x["stock"]) for x in productos[1]["variantes"]] == [("S", 0), ("M", 2), ("L", 3)]
+    assert r.json()["vacio"] is False
 
 
-def test_las_categorias_traen_el_camino_completo(sesion):
-    nombres = [c["nombre"] for c in sesion.get("/admin/api/categorias").json()]
+def test_el_stock_es_propio_una_venta_en_la_tienda_no_lo_cambia(sesion, tienda, alm):
+    tienda.vender(1, "M", 2)
 
-    assert "FÚTBOL ARGENTINO › BOCA" in nombres
+    productos = {p["id"]: p for p in sesion.get("/admin/api/stock").json()["productos"]}
+
+    assert tienda.stock(1, "M") == 0
+    assert hay(alm, 1, "M") == 2
+    assert [x["stock"] for x in productos[1]["variantes"] if x["talle"] == "M"] == [2]
+
+
+def test_un_modelo_borrado_de_la_tienda_sigue_en_la_planilla(sesion, tienda):
+    del tienda.productos[2]
+
+    productos = {p["id"]: p for p in sesion.get("/admin/api/stock").json()["productos"]}
+
+    assert "ya no está en la tienda" in productos[2]["nombre"]
 
 
 # -- Guardar ------------------------------------------------------------------
 
 
-def test_guardar_cambia_el_stock_y_lo_anota(sesion, tienda, memoria, invalidaciones):
-    r = sesion.post("/admin/api/stock/aplicar", json={"cambios": [cambio(tienda, 1, "M", 7), cambio(tienda, 1, "S", 4)]}, headers=H)
+def test_guardar_cambia_el_stock_propio_y_lo_anota(sesion, tienda, alm, memoria):
+    r = sesion.post("/admin/api/stock/aplicar", json={"cambios": [cambio(alm, 1, "M", 7), cambio(alm, 1, "S", 4)]}, headers=H)
 
     assert r.status_code == 200
     assert r.json()["aplicados"] == 2
-    assert (tienda.stock(1, "M"), tienda.stock(1, "S")) == (7, 4)
+    assert (hay(alm, 1, "M"), hay(alm, 1, "S")) == (7, 4)
+    assert tienda.stock(1, "M") == 2, "la tienda no se toca"
     assert {(e["talle"], e["antes"], e["despues"]) for e in memoria.filas} == {("M", 2, 7), ("S", 0, 4)}
     assert memoria.filas[0]["usuario"] == "leo"
-    assert invalidaciones, "la web pública tiene que volver a leer el stock"
 
 
-def test_un_conflicto_no_aplica_ni_los_cambios_buenos(sesion, tienda, memoria):
-    """Alguien compró una M mientras editabas: no se pisa, y no se guarda nada."""
-    mios = [cambio(tienda, 1, "M", 9), cambio(tienda, 1, "L", 8)]
-    tienda.vender(1, "M")  # entra una venta en el medio
+def test_un_conflicto_no_aplica_ni_los_cambios_buenos(sesion, alm, memoria):
+    """Se confirmó un pedido mientras editabas: no se pisa, y no se guarda nada."""
+    mios = [cambio(alm, 1, "M", 9), cambio(alm, 1, "L", 8)]
+    pedido(alm, "A-AAAAA", (1, "M", 1))
+    alm.confirmar("A-AAAAA")  # entra un pedido en el medio
 
     r = sesion.post("/admin/api/stock/aplicar", json={"cambios": mios}, headers=H)
 
     assert r.status_code == 409
     conflicto = r.json()["detail"]["conflictos"][0]
     assert (conflicto["talle"], conflicto["esperado"], conflicto["actual"]) == ("M", 2, 1)
-    assert tienda.stock(1, "L") == 3, "el cambio bueno tampoco se aplicó"
+    assert hay(alm, 1, "L") == 3, "el cambio bueno tampoco se aplicó"
     assert memoria.filas == []
 
 
-def test_no_se_guarda_stock_negativo(sesion, tienda):
-    r = sesion.post("/admin/api/stock/aplicar", json={"cambios": [cambio(tienda, 1, "M", -1)]}, headers=H)
+def test_si_la_base_detecta_el_choque_justo_al_guardar_tampoco_se_aplica(sesion, alm, monkeypatch):
+    """Dos personas guardando a la vez: la segunda se entera en vez de pisar a la primera."""
+    original = alm.aplicar
+
+    def con_choque(cambios, altas):
+        f = fila(alm, 1, "M")
+        f["cantidad"] = 99  # alguien se adelantó entre la lectura y la escritura
+        alm._stock[f["id"]]["cantidad"] = 99
+        return original(cambios, altas)
+
+    monkeypatch.setattr(alm, "aplicar", con_choque)
+
+    r = sesion.post("/admin/api/stock/aplicar", json={"cambios": [cambio(alm, 1, "M", 5)]}, headers=H)
+
+    assert r.status_code == 409
+    assert hay(alm, 1, "M") == 99
+
+
+def test_no_se_guarda_stock_negativo(sesion, alm):
+    r = sesion.post("/admin/api/stock/aplicar", json={"cambios": [cambio(alm, 1, "M", -1)]}, headers=H)
 
     assert r.status_code == 422
-    assert tienda.stock(1, "M") == 2
+    assert hay(alm, 1, "M") == 2
 
 
-def test_guardar_sin_cambios_reales_no_hace_nada(sesion, tienda, memoria):
-    r = sesion.post("/admin/api/stock/aplicar", json={"cambios": [cambio(tienda, 1, "M", 2)]}, headers=H)
+def test_guardar_sin_cambios_reales_no_hace_nada(sesion, alm, memoria):
+    r = sesion.post("/admin/api/stock/aplicar", json={"cambios": [cambio(alm, 1, "M", 2)]}, headers=H)
 
     assert r.status_code == 200
     assert r.json()["lote"] is None
     assert memoria.filas == []
 
 
-def test_un_talle_nuevo_se_crea_con_el_precio_del_modelo(sesion, tienda, memoria):
-    r = sesion.post(
-        "/admin/api/stock/aplicar",
-        json={"cambios": [{"tipo": "talle_nuevo", "producto": 1, "talle": "XXL", "despues": 3}]},
-        headers=H,
-    )
+def test_un_talle_de_otro_modelo_no_se_toca(sesion, alm):
+    ajeno = cambio(alm, 2, "XL", 5)
+    ajeno["producto"] = 1  # la fila es del modelo 2, el cambio dice modelo 1
+
+    r = sesion.post("/admin/api/stock/aplicar", json={"cambios": [ajeno]}, headers=H)
+
+    assert r.status_code == 409
+    assert hay(alm, 2, "XL") == 0
+
+
+def test_un_talle_nuevo_se_crea_solo_en_el_mayorista(sesion, tienda, alm, memoria):
+    r = sesion.post("/admin/api/stock/aplicar", json={"cambios": [{"tipo": "talle_nuevo", "producto": 1, "talle": "XXL", "despues": 3}]}, headers=H)
 
     assert r.status_code == 200
     assert r.json()["creados"] == 1
-    nuevo = v(tienda, 1, "XXL")
-    assert (nuevo["stock"], nuevo["price"]) == (3, "75000.00")
+    assert hay(alm, 1, "XXL") == 3
+    assert len(tienda.productos[1]["variants"]) == 3, "la tienda no recibe el talle"
     assert memoria.filas[0]["accion"] == "talle_nuevo"
+    assert memoria.filas[0]["variante_id"] == fila(alm, 1, "XXL")["id"]
 
 
-def test_un_talle_que_ya_existe_no_se_duplica(sesion, tienda):
+def test_un_talle_que_ya_existe_no_se_duplica(sesion):
     r = sesion.post("/admin/api/stock/aplicar", json={"cambios": [{"tipo": "talle_nuevo", "producto": 1, "talle": " m ", "despues": 3}]}, headers=H)
 
     assert r.status_code == 409
 
 
-def test_en_bloques_de_cincuenta(monkeypatch):
-    """Tiendanube acepta hasta 50 variantes por pedido: más se parte."""
-    pedidos = []
-    monkeypatch.setattr(tn, "pedir", lambda metodo, ruta, cuerpo=None, **k: pedidos.append(cuerpo))
+def test_no_se_crean_talles_en_un_modelo_que_no_esta_en_el_mayorista(sesion, alm):
+    r = sesion.post("/admin/api/stock/aplicar", json={"cambios": [{"tipo": "talle_nuevo", "producto": 3, "talle": "M", "despues": 3}]}, headers=H)
 
-    tn.actualizar_stock([(1, i, 5, None) for i in range(120)])
-
-    assert [sum(len(p["variants"]) for p in pedido) for pedido in pedidos] == [50, 50, 20]
-
-
-def test_el_pedido_de_stock_agrupa_por_modelo_y_lleva_la_ubicacion():
-    lote = tn.armar_lote_de_stock([(1, 11, 5, "LOC"), (1, 12, 0, "LOC"), (2, 21, 3, None)])
-
-    assert lote == [
-        {"id": 1, "variants": [{"id": 11, "inventory_levels": [{"stock": 5, "location_id": "LOC"}]}, {"id": 12, "inventory_levels": [{"stock": 0, "location_id": "LOC"}]}]},
-        {"id": 2, "variants": [{"id": 21, "inventory_levels": [{"stock": 3}]}]},
-    ]
+    assert r.status_code == 409
+    assert alm.filas([3]) == []
 
 
 # -- Deshacer -----------------------------------------------------------------
 
 
-def test_deshacer_devuelve_el_stock_de_antes(sesion, tienda, memoria):
-    lote = sesion.post("/admin/api/stock/aplicar", json={"cambios": [cambio(tienda, 1, "M", 7), cambio(tienda, 1, "L", 9)]}, headers=H).json()["lote"]
+def test_deshacer_devuelve_el_stock_de_antes(sesion, alm):
+    lote = sesion.post("/admin/api/stock/aplicar", json={"cambios": [cambio(alm, 1, "M", 7), cambio(alm, 1, "L", 9)]}, headers=H).json()["lote"]
 
     r = sesion.post(f"/admin/api/historial/{lote}/deshacer", headers=H)
 
     assert r.status_code == 200
-    assert (tienda.stock(1, "M"), tienda.stock(1, "L")) == (2, 3)
+    assert (hay(alm, 1, "M"), hay(alm, 1, "L")) == (2, 3)
 
 
-def test_no_se_deshace_dos_veces(sesion, tienda):
-    lote = sesion.post("/admin/api/stock/aplicar", json={"cambios": [cambio(tienda, 1, "M", 7)]}, headers=H).json()["lote"]
+def test_no_se_deshace_dos_veces(sesion, alm):
+    lote = sesion.post("/admin/api/stock/aplicar", json={"cambios": [cambio(alm, 1, "M", 7)]}, headers=H).json()["lote"]
     sesion.post(f"/admin/api/historial/{lote}/deshacer", headers=H)
 
     assert sesion.post(f"/admin/api/historial/{lote}/deshacer", headers=H).status_code == 404
 
 
-def test_si_el_stock_cambio_despues_no_se_deshace(sesion, tienda):
-    """Deshacer un guardado de ayer no puede pisar las ventas de hoy."""
-    lote = sesion.post("/admin/api/stock/aplicar", json={"cambios": [cambio(tienda, 1, "M", 7)]}, headers=H).json()["lote"]
-    tienda.vender(1, "M")
+def test_si_el_stock_cambio_despues_no_se_deshace(sesion, alm):
+    """Deshacer un guardado de ayer no puede pisar los pedidos de hoy."""
+    lote = sesion.post("/admin/api/stock/aplicar", json={"cambios": [cambio(alm, 1, "M", 7)]}, headers=H).json()["lote"]
+    pedido(alm, "A-AAAAA", (1, "M", 1))
+    alm.confirmar("A-AAAAA")
 
     r = sesion.post(f"/admin/api/historial/{lote}/deshacer", headers=H)
 
     assert r.status_code == 409
-    assert tienda.stock(1, "M") == 6
+    assert hay(alm, 1, "M") == 6
 
 
-def test_deshacer_un_talle_nuevo_lo_deja_en_cero(sesion, tienda):
+def test_deshacer_un_talle_nuevo_lo_deja_en_cero(sesion, alm):
     lote = sesion.post("/admin/api/stock/aplicar", json={"cambios": [{"tipo": "talle_nuevo", "producto": 1, "talle": "XXL", "despues": 3}]}, headers=H).json()["lote"]
 
     sesion.post(f"/admin/api/historial/{lote}/deshacer", headers=H)
 
-    assert tienda.stock(1, "XXL") == 0
+    assert hay(alm, 1, "XXL") == 0
 
 
-def test_el_historial_agrupa_por_guardado(sesion, tienda):
-    sesion.post("/admin/api/stock/aplicar", json={"cambios": [cambio(tienda, 1, "M", 7), cambio(tienda, 1, "L", 9)]}, headers=H)
+def test_el_historial_agrupa_por_guardado(sesion, alm):
+    sesion.post("/admin/api/stock/aplicar", json={"cambios": [cambio(alm, 1, "M", 7), cambio(alm, 1, "L", 9)]}, headers=H)
 
     lotes = sesion.get("/admin/api/historial").json()
 
@@ -369,53 +403,200 @@ def test_el_historial_agrupa_por_guardado(sesion, tienda):
     assert lotes[0]["se_puede_deshacer"] is True
 
 
-# -- Modelos nuevos -----------------------------------------------------------
+# -- Pedidos ------------------------------------------------------------------
 
 
-def modelo(**extra):
-    return {"nombre": "Boca 2004 Retro", "precio": 75000, "talles": {"S": 1, "M": 2}, "categorias": [5], "fotos": [{"nombre": "frente.png", "datos": PNG}], **extra}
+def test_los_pedidos_se_listan_con_lo_que_hay_ahora(sesion, alm):
+    pedido(alm, "A-AAAAA", (1, "M", 2), (1, "L", 5))
+
+    r = sesion.get("/admin/api/pedidos").json()
+
+    p = r["pedidos"][0]
+    assert (p["codigo"], p["estado"], p["unidades"], p["nombre"], p["negocio"]) == ("A-AAAAA", "nuevo", 7, "Pablo", "Kiosco")
+    assert [(i["talle"], i["cantidad"], i["hay"]) for i in p["items"]] == [("M", 2, 2), ("L", 5, 3)]
+    assert p["falta"] is True, "pidió 5 de una L y hay 3"
+    assert r["cuenta"] == {"nuevo": 1}
 
 
-def test_se_crea_un_modelo_nuevo_oculto_por_defecto(sesion, tienda, memoria):
-    r = sesion.post("/admin/api/productos", json=modelo(), headers=H)
+def test_un_estado_desconocido_no_se_acepta(sesion):
+    assert sesion.get("/admin/api/pedidos?estado=cualquiera").status_code == 422
+
+
+def test_confirmar_descuenta_el_stock_y_lo_anota(sesion, alm, memoria):
+    pedido(alm, "A-AAAAA", (1, "M", 2), (1, "L", 1))
+
+    r = sesion.post("/admin/api/pedidos/A-AAAAA/confirmar", headers=H)
 
     assert r.status_code == 200
-    creado = tienda.creados[0]
-    assert creado["publicado"] is False
-    assert creado["talles"] == {"S": 1, "M": 2}
-    assert creado["precio"] == "75000.00"
-    assert creado["fotos"][0]["filename"] == "frente.png"
-    assert memoria.filas[0]["accion"] == "producto_nuevo"
+    assert r.json() == {"codigo": "A-AAAAA", "estado": "confirmado", "unidades": 3}
+    assert (hay(alm, 1, "M"), hay(alm, 1, "L")) == (0, 2)
+    assert alm.pedido("A-AAAAA")["estado"] == "confirmado"
+    assert {(e["accion"], e["talle"], e["antes"], e["despues"]) for e in memoria.filas} == {("pedido", "M", 2, 0), ("pedido", "L", 3, 2)}
+    assert "A-AAAAA" in memoria.filas[0]["producto"]
 
 
-def test_un_modelo_sin_talles_no_se_crea(sesion, tienda):
-    r = sesion.post("/admin/api/productos", json=modelo(talles={}), headers=H)
+def test_si_no_alcanza_no_se_descuenta_nada_ni_de_lo_que_si_habia(sesion, alm, memoria):
+    pedido(alm, "A-AAAAA", (1, "M", 1), (1, "L", 5))  # de la L hay 3
 
-    assert r.status_code == 422
-    assert tienda.creados == []
+    r = sesion.post("/admin/api/pedidos/A-AAAAA/confirmar", headers=H)
 
-
-def test_una_foto_que_no_es_imagen_no_se_acepta(sesion, tienda):
-    texto = base64.b64encode(b"esto no es una imagen").decode()
-
-    r = sesion.post("/admin/api/productos", json=modelo(fotos=[{"nombre": "x.png", "datos": texto}]), headers=H)
-
-    assert r.status_code == 422
-    assert tienda.creados == []
+    assert r.status_code == 409
+    assert r.json()["detail"]["conflictos"][0]["talle"] == "L"
+    assert (hay(alm, 1, "M"), hay(alm, 1, "L")) == (2, 3)
+    assert alm.pedido("A-AAAAA")["estado"] == "nuevo"
+    assert memoria.filas == []
 
 
-def test_una_foto_demasiado_pesada_no_se_acepta(sesion, tienda):
-    grande = base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"0" * (admin.PESO_MAXIMO_DE_FOTO + 1)).decode()
+def test_las_lineas_repetidas_del_mismo_talle_se_suman_antes_de_confirmar(sesion, alm):
+    pedido(alm, "A-AAAAA", (1, "M", 2), (1, "m", 1))  # 3 en total y hay 2
 
-    r = sesion.post("/admin/api/productos", json=modelo(fotos=[{"nombre": "x.png", "datos": grande}]), headers=H)
+    assert sesion.post("/admin/api/pedidos/A-AAAAA/confirmar", headers=H).status_code == 409
+    assert hay(alm, 1, "M") == 2
 
-    assert r.status_code == 422
+
+def test_un_pedido_no_se_confirma_dos_veces(sesion, alm):
+    pedido(alm, "A-AAAAA", (1, "M", 1))
+    sesion.post("/admin/api/pedidos/A-AAAAA/confirmar", headers=H)
+
+    r = sesion.post("/admin/api/pedidos/A-AAAAA/confirmar", headers=H)
+
+    assert r.status_code == 409
+    assert hay(alm, 1, "M") == 1, "no se descontó de nuevo"
 
 
-def test_el_nombre_de_la_foto_no_puede_llevar_rutas():
-    foto = admin.decodificar_foto(admin.Foto(nombre="../../etc/passwd.png", datos=PNG))
+def test_confirmar_un_pedido_que_no_existe_da_404(sesion):
+    assert sesion.post("/admin/api/pedidos/A-ZZZZZ/confirmar", headers=H).status_code == 404
 
-    assert "/" not in foto["filename"] and "\\" not in foto["filename"]
+
+def test_cancelar_un_pedido_confirmado_devuelve_el_stock(sesion, alm, memoria):
+    pedido(alm, "A-AAAAA", (1, "M", 2))
+    sesion.post("/admin/api/pedidos/A-AAAAA/confirmar", headers=H)
+
+    r = sesion.post("/admin/api/pedidos/A-AAAAA/cancelar", headers=H)
+
+    assert r.status_code == 200 and r.json()["devuelto"] is True
+    assert hay(alm, 1, "M") == 2
+    assert alm.pedido("A-AAAAA")["estado"] == "cancelado"
+    assert memoria.filas[-1]["accion"] == "pedido_cancelado"
+
+
+def test_cancelar_un_pedido_nuevo_no_toca_el_stock(sesion, alm):
+    pedido(alm, "A-AAAAA", (1, "M", 2))
+
+    r = sesion.post("/admin/api/pedidos/A-AAAAA/cancelar", headers=H)
+
+    assert r.status_code == 200 and r.json()["devuelto"] is False
+    assert hay(alm, 1, "M") == 2
+
+
+def test_un_pedido_cancelado_no_se_puede_confirmar(sesion, alm):
+    pedido(alm, "A-AAAAA", (1, "M", 1))
+    sesion.post("/admin/api/pedidos/A-AAAAA/cancelar", headers=H)
+
+    assert sesion.post("/admin/api/pedidos/A-AAAAA/confirmar", headers=H).status_code == 409
+    assert hay(alm, 1, "M") == 2
+
+
+def test_solo_se_despacha_un_pedido_confirmado(sesion, alm):
+    pedido(alm, "A-AAAAA", (1, "M", 1))
+
+    assert sesion.post("/admin/api/pedidos/A-AAAAA/despachar", headers=H).status_code == 409
+    sesion.post("/admin/api/pedidos/A-AAAAA/confirmar", headers=H)
+    assert sesion.post("/admin/api/pedidos/A-AAAAA/despachar", headers=H).json()["estado"] == "despachado"
+    assert sesion.post("/admin/api/pedidos/A-AAAAA/cancelar", headers=H).status_code == 409, "uno despachado ya no se cancela acá"
+
+
+def test_los_pedidos_se_filtran_por_estado(sesion, alm):
+    pedido(alm, "A-AAAAA", (1, "M", 1))
+    pedido(alm, "A-BBBBB", (1, "L", 1), estado="confirmado")
+
+    assert [p["codigo"] for p in sesion.get("/admin/api/pedidos?estado=nuevo").json()["pedidos"]] == ["A-AAAAA"]
+    assert [p["codigo"] for p in sesion.get("/admin/api/pedidos?estado=confirmado").json()["pedidos"]] == ["A-BBBBB"]
+    assert len(sesion.get("/admin/api/pedidos?estado=todos").json()["pedidos"]) == 2
+
+
+# -- Modelos de la tienda -----------------------------------------------------
+
+
+def test_los_modelos_nuevos_son_los_de_la_tienda_que_el_mayorista_no_tiene(sesion):
+    r = sesion.get("/admin/api/tienda/nuevos").json()
+
+    assert [n["id"] for n in r["nuevos"]] == [3], "el 4 no tiene foto y el 2 ya está incluido"
+    assert r["nuevos"][0]["unidades"] == 5
+    assert [(t["talle"], t["stock"]) for t in r["nuevos"][0]["talles"]] == [("S", 1), ("M", 4)]
+
+
+def test_incluir_un_modelo_con_el_stock_en_cero(sesion, alm, invalidaciones, memoria):
+    r = sesion.post("/admin/api/tienda/incluir", json={"producto": 3, "copiar_stock": False}, headers=H)
+
+    assert r.status_code == 200
+    assert [(f["talle"], f["cantidad"]) for f in alm.filas([3])] == [("S", 0), ("M", 0)]
+    assert invalidaciones, "la web tiene que volver a leer los nombres y fotos"
+    assert memoria.filas[0]["accion"] == "incluido"
+
+
+def test_incluir_un_modelo_copiando_el_stock_de_la_tienda(sesion, alm):
+    sesion.post("/admin/api/tienda/incluir", json={"producto": 3, "copiar_stock": True}, headers=H)
+
+    assert [(f["talle"], f["cantidad"]) for f in alm.filas([3])] == [("S", 1), ("M", 4)]
+
+
+def test_incluir_no_toca_la_tienda_ni_se_vuelve_a_copiar_solo(sesion, tienda, alm):
+    sesion.post("/admin/api/tienda/incluir", json={"producto": 3, "copiar_stock": True}, headers=H)
+    tienda.vender(3, "M", 4)
+
+    assert tienda.stock(3, "M") == 0
+    assert hay(alm, 3, "M") == 4, "después de incluirlo, el stock del mayorista es solo suyo"
+
+
+def test_un_modelo_no_se_incluye_dos_veces(sesion):
+    sesion.post("/admin/api/tienda/incluir", json={"producto": 3}, headers=H)
+
+    assert sesion.post("/admin/api/tienda/incluir", json={"producto": 3}, headers=H).status_code == 409
+
+
+@pytest.mark.parametrize("producto", [2, 4, 999])
+def test_no_se_incluye_lo_que_no_esta_publicado_o_no_tiene_foto(sesion, producto):
+    r = sesion.post("/admin/api/tienda/incluir", json={"producto": producto}, headers=H)
+
+    assert r.status_code in (409, 422)
+
+
+def test_la_carga_inicial_solo_corre_con_el_stock_vacio(sesion):
+    r = sesion.post("/admin/api/tienda/cargar-stock", headers=H)
+
+    assert r.status_code == 409
+
+
+def test_la_carga_inicial_copia_lo_elegible_de_la_tienda(monkeypatch, tienda, memoria, invalidaciones):
+    vacio = almacen.AlmacenMemoria()
+    monkeypatch.setattr(acceso, "USUARIO", "leo")
+    monkeypatch.setattr(acceso, "CLAVE", CLAVE)
+    monkeypatch.setattr(acceso, "SECRETO", "s" * 40)
+    acceso._fallos.clear()
+    app = FastAPI()
+    app.include_router(admin.crear_router(memoria, lambda: invalidaciones.append(1), vacio))
+    c = TestClient(app)
+    c.post("/admin/api/login", json={"usuario": "leo", "clave": CLAVE}, headers=H)
+
+    assert c.get("/admin/api/stock").json()["vacio"] is True
+    r = c.post("/admin/api/tienda/cargar-stock", headers=H)
+
+    assert r.status_code == 200
+    assert r.json()["modelos"] == 2, "el 1 y el 3: el 2 está oculto y el 4 no tiene foto"
+    assert hay(vacio, 1, "M") == 2 and hay(vacio, 3, "M") == 4
+    assert vacio.filas([2]) == [] and vacio.filas([4]) == []
+
+
+def test_las_filas_iniciales_dejan_afuera_lo_que_no_se_puede_ofrecer(tienda):
+    sin_control = tienda.productos[1]
+    sin_control["variants"][0]["stock"] = None  # la S no lleva cuenta en la tienda
+
+    filas = admin.filas_iniciales(list(tienda.productos.values()))
+
+    assert (1, "S", 0) not in filas
+    assert (1, "M", 2) in filas
+    assert not [f for f in filas if f[0] in (2, 4)]
 
 
 # -- La página del panel -------------------------------------------------------

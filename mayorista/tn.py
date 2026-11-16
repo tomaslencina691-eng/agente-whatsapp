@@ -1,9 +1,9 @@
-"""El cliente de Tiendanube: leer productos y modificar stock, talles y modelos.
+"""El cliente de Tiendanube: solo lectura.
 
-Lo usan la web pública (solo lee) y el panel de administración (lee y escribe).
-Habla la API con `urllib`, como el resto del proyecto: no hace falta más.
-
-Tiendanube es la única fuente de verdad del stock. Acá no se guarda nada.
+Tiendanube aporta el nombre, las fotos, las categorías y los talles de cada
+modelo. El stock del mayorista NO sale de acá: es propio (ver almacen.py), y
+a Tiendanube no se le escribe nada, así que la app alcanza con permisos de
+lectura. Habla la API con `urllib`, como el resto del proyecto.
 """
 
 from __future__ import annotations
@@ -24,9 +24,7 @@ log = logging.getLogger("mayorista.tn")
 TIENDA = os.getenv("TIENDANUBE_STORE_ID", "").strip()
 TOKEN = os.getenv("TIENDANUBE_ACCESS_TOKEN", "").strip()
 
-# La API de Tiendanube acepta hasta 50 variantes por pedido de stock.
-MAXIMO_POR_LOTE = 50
-# Y hasta 30 ids por consulta.
+# La API de Tiendanube acepta hasta 30 ids por consulta.
 MAXIMO_DE_IDS = 30
 
 
@@ -100,70 +98,6 @@ def productos_por_id(ids: list[int]) -> dict[int, dict]:
 
 def categorias() -> list[dict]:
     return pedir("GET", "/categories?per_page=200")
-
-
-# -- Escribir stock -----------------------------------------------------------
-
-
-def actualizar_stock(cambios: list[tuple[int, int, int, str | None]]) -> None:
-    """Pone el stock de cada variante. cambios = [(producto, variante, stock, ubicacion)].
-
-    Va en bloques de 50 (el máximo de la API). Si un bloque falla, los anteriores
-    ya quedaron aplicados: quien llama sabe cuáles por la excepción.
-    """
-    for i in range(0, len(cambios), MAXIMO_POR_LOTE):
-        trozo = cambios[i : i + MAXIMO_POR_LOTE]
-        pedir("PATCH", "/products/stock-price", armar_lote_de_stock(trozo))
-
-
-def armar_lote_de_stock(cambios: list[tuple[int, int, int, str | None]]) -> list[dict]:
-    """El cuerpo del PATCH /products/stock-price, agrupado por producto."""
-    por_producto: dict[int, list[dict]] = {}
-    for producto, variante, stock, ubicacion in cambios:
-        if stock < 0:
-            raise ValueError("El stock no puede ser negativo.")
-        nivel: dict = {"stock": int(stock)}
-        if ubicacion:
-            nivel["location_id"] = ubicacion
-        por_producto.setdefault(producto, []).append({"id": variante, "inventory_levels": [nivel]})
-    return [{"id": producto, "variants": variantes} for producto, variantes in por_producto.items()]
-
-
-# -- Escribir talles y modelos ------------------------------------------------
-
-
-def crear_variante(producto: int, talle: str, stock: int, precio: str) -> dict:
-    return pedir(
-        "POST",
-        f"/products/{producto}/variants",
-        {"price": str(precio), "stock_management": True, "stock": int(stock), "values": [{"es": talle}]},
-    )
-
-
-def armar_producto(
-    nombre: str,
-    precio: str,
-    talles: dict[str, int],
-    categorias_ids: list[int],
-    fotos: list[dict],
-    publicado: bool,
-) -> dict:
-    """El cuerpo del POST /products. `fotos` = [{"filename": ..., "attachment": base64}]."""
-    return {
-        "name": {"es": nombre},
-        "published": bool(publicado),
-        "attributes": [{"es": "Talle"}],
-        "categories": list(categorias_ids),
-        "variants": [
-            {"price": str(precio), "stock_management": True, "stock": int(cantidad), "values": [{"es": talle}]}
-            for talle, cantidad in talles.items()
-        ],
-        "images": fotos,
-    }
-
-
-def crear_producto(**datos) -> dict:
-    return pedir("POST", "/products", armar_producto(**datos))
 
 
 # -- Fotos --------------------------------------------------------------------

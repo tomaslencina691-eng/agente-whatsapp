@@ -114,7 +114,7 @@ def clima(lugar: str) -> str:
 
 @tool
 def buscar_producto(consulta: str) -> str:
-    """Busca productos reales de la tienda: precio, talles con stock y el link.
+    """Busca productos reales de la tienda: precio, talles con stock del mayorista y el link.
 
     Usala cuando alguien pregunte por una camiseta o producto, si hay stock,
     cuánto sale, o pida una recomendación. Buscá con las palabras que usó la
@@ -133,7 +133,8 @@ def buscar_producto(consulta: str) -> str:
         return "La tienda todavía no está conectada a este agente."
 
     try:
-        productos = _buscar_en_catalogo(consulta)
+        stock = _stock_mayorista()
+        productos = _buscar_en_catalogo(consulta, stock=stock)
     except Exception as e:
         return f"No se pudo consultar la tienda: {type(e).__name__}: {e}"
 
@@ -143,7 +144,7 @@ def buscar_producto(consulta: str) -> str:
             "Puede estar mal escrito o no ser algo que vendamos."
         )
 
-    return "\n\n".join(_describir_producto(p) for p in productos)
+    return "\n\n".join(_describir_producto(p, stock) for p in productos)
 
 
 @tool
@@ -407,17 +408,64 @@ PALABRAS_VACIAS = {
 
 
 def _catalogo_completo() -> list[dict]:
-    """Todos los productos publicados, en un solo pedido.
+    """Todos los productos publicados, de a 200 por pedido (el máximo de la API).
 
-    Se asume una tienda con un catálogo chico (bien por debajo de 100
-    productos), así que traerlo entero y comparar acá es más simple y más
-    confiable que el buscador de Tiendanube, que no tolera errores de tipeo
-    (se probó a mano: "argentna" ahí no encuentra nada).
+    Traerlo entero y comparar acá es más simple y más confiable que el
+    buscador de Tiendanube, que no tolera errores de tipeo (se probó a mano:
+    "argentna" ahí no encuentra nada). Se pagina porque la tienda tiene más
+    de 100 modelos: con una sola página los de más abajo no se encontraban.
     """
-    return _tiendanube_pedir("/products", {"per_page": 100, "published": "true"})
+    productos: list[dict] = []
+    for pagina in range(1, 11):
+        lote = _tiendanube_pedir("/products", {"per_page": 200, "page": pagina, "published": "true"})
+        productos += lote
+        if len(lote) < 200:
+            break
+    return productos
 
 
-def _buscar_en_catalogo(consulta: str, maximo: int = 6) -> list[dict]:
+# -- Stock del mayorista ----------------------------------------------------
+#
+# El stock que se ofrece es el PROPIO del mayorista (tabla mayorista_stock, en
+# la misma Postgres que usa el panel): el de la tienda no cuenta. Tiendanube
+# aporta nombres, precios y links. Sin POSTGRES_DSN (desarrollo) se usa el
+# stock de la tienda, como antes.
+
+ORDEN_DE_TALLES = ["XS", "S", "M", "L", "XL", "XXL", "XXXL"]
+
+
+def _stock_mayorista() -> dict[int, dict[str, int]] | None:
+    """{modelo: {talle: cantidad}} del mayorista, o None si no hay base (desarrollo)."""
+    dsn = os.getenv("POSTGRES_DSN", "").strip()
+    if not dsn:
+        return None
+    import psycopg
+
+    with psycopg.connect(dsn, connect_timeout=5) as conexion, conexion.cursor() as cursor:
+        cursor.execute("SELECT producto_id, talle, cantidad FROM mayorista_stock")
+        salida: dict[int, dict[str, int]] = {}
+        for producto, talle, cantidad in cursor.fetchall():
+            salida.setdefault(producto, {})[talle] = cantidad
+    return salida
+
+
+def _tiene_stock(producto: dict, stock: dict[int, dict[str, int]] | None) -> bool:
+    if stock is None:
+        return bool(producto.get("has_stock"))
+    return sum((stock.get(producto.get("id")) or {}).values()) > 0
+
+
+def _talles_del_mayorista(talles: dict[str, int]) -> list[str]:
+    """Los talles con stock, en orden de talle, con cuántas unidades hay de cada uno."""
+
+    def orden(item):
+        base = item[0].split(" - ")[0].strip().upper()
+        return (ORDEN_DE_TALLES.index(base) if base in ORDEN_DE_TALLES else 99, item[0])
+
+    return [f"{talle} ({cantidad} u.)" for talle, cantidad in sorted(talles.items(), key=orden) if cantidad > 0]
+
+
+def _buscar_en_catalogo(consulta: str, maximo: int = 6, stock: dict[int, dict[str, int]] | None = None) -> list[dict]:
     """Los productos del catálogo que mejor matchean la consulta, ordenados.
 
     Con una consulta genérica ("camiseta de boca", sin decir cuál) es normal
@@ -429,7 +477,7 @@ def _buscar_en_catalogo(consulta: str, maximo: int = 6) -> list[dict]:
     frecuencia, total = _frecuencia_de_palabras(catalogo)
 
     puntuados = [(_puntaje(consulta, p, frecuencia, total), p) for p in catalogo]
-    puntuados.sort(key=lambda par: (par[0], bool(par[1].get("has_stock"))), reverse=True)
+    puntuados.sort(key=lambda par: (par[0], _tiene_stock(par[1], stock)), reverse=True)
 
     return [p for puntaje, p in puntuados if puntaje >= UMBRAL_DE_PARECIDO][:maximo]
 
@@ -514,8 +562,12 @@ def _puntaje(consulta: str, producto: dict, frecuencia: dict[str, int], total: i
     return (promedio + mejor) / 2
 
 
-def _describir_producto(p: dict) -> str:
-    """Nombre, precio, link y talles con stock — o alternativas si no hay."""
+def _describir_producto(p: dict, stock: dict[int, dict[str, int]] | None = None) -> str:
+    """Nombre, precio, link y talles con stock — o alternativas si no hay.
+
+    Con `stock` (el del mayorista) los talles y las unidades salen de ahí; sin
+    él, de Tiendanube.
+    """
     nombre = (p.get("name") or {}).get("es") or "producto"
     link = p.get("canonical_url") or ""
     variantes = p.get("variants") or []
@@ -533,12 +585,20 @@ def _describir_producto(p: dict) -> str:
         # El canal de Chatwoot reconoce esta etiqueta y manda la imagen.
         lineas.append(f"[foto: {foto}]")
 
-    con_stock = [_talle(v) for v in variantes if (v.get("stock") or 0) > 0]
+    if stock is not None and stock.get(p.get("id")) is None:
+        # Está en la tienda pero no en el mayorista: no se puede prometer nada.
+        lineas.append("No figura en el catálogo mayorista por ahora: lo confirma el equipo.")
+        return "\n".join(lineas)
+
+    if stock is None:
+        con_stock = [_talle(v) for v in variantes if (v.get("stock") or 0) > 0]
+    else:
+        con_stock = _talles_del_mayorista(stock[p["id"]])
     if con_stock:
         lineas.append("Talles con stock: " + ", ".join(con_stock))
     else:
         lineas.append("Sin stock por ahora.")
-        alternativas = _buscar_alternativas(p)
+        alternativas = _buscar_alternativas(p, stock=stock)
         if alternativas:
             lineas.append("Alternativas con stock: " + "; ".join(alternativas))
 
@@ -563,7 +623,7 @@ def _talle(variante: dict) -> str:
     return ", ".join(v.get("es", "") for v in valores if v.get("es")) or "único"
 
 
-def _buscar_alternativas(producto: dict, maximo: int = 3) -> list[str]:
+def _buscar_alternativas(producto: dict, maximo: int = 3, stock: dict[int, dict[str, int]] | None = None) -> list[str]:
     """Otros productos con stock, parecidos por nombre, etiquetas o marca."""
     try:
         catalogo = _catalogo_completo()
@@ -578,7 +638,7 @@ def _buscar_alternativas(producto: dict, maximo: int = 3) -> list[str]:
     candidatos = [
         c
         for c in catalogo
-        if c.get("id") != producto.get("id") and c.get("has_stock")
+        if c.get("id") != producto.get("id") and _tiene_stock(c, stock)
     ]
     puntuados = [
         (_puntaje(consulta, c, frecuencia, total), c) for c in candidatos

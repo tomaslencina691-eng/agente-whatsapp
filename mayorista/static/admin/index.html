@@ -4,22 +4,22 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
-<meta name="theme-color" content="#0e1f16">
+<meta name="theme-color" content="#0e0e10">
 <title>Panel mayorista</title>
-<link rel="icon" href="../favicon.svg" type="image/svg+xml">
 <link rel="icon" href="../favicon.ico" sizes="48x48">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,700;0,9..40,800&family=Playfair+Display:ital,wght@0,700;0,800&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sofia+Sans+Extra+Condensed:wght@700;800&display=swap">
 <style>
-/* Una planilla: densa, de teclado, sobre el mismo verde noche de la web mayorista. */
+/* Una planilla: densa, de teclado, con la identidad de la web mayorista (negro y verde cancha).
+   Las variables conservan sus nombres de siempre: --mostaza es el color de acento (hoy verde). */
 :root {
-  --noche: #0e1f16; --noche-2: #132a1d; --tarjeta: #16301f; --linea: #2f5440; --pino: #1f3f2c;
-  --crema: #f5efe6; --papel: #f1e4c5; --mostaza: #c49a2b; --mostaza-claro: #e0b84a; --bordo: #a23a2c;
-  --texto: #f1e4c5; --suave: #b9c3b4; --ok: #7fbf8f; --error: #ff9b8c; --tinta: #2a1f18;
-  --cambio: rgba(196, 154, 43, .22);
-  --display: "Playfair Display", Georgia, serif;
-  --cuerpo: "DM Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --noche: #0e0e10; --noche-2: #151518; --tarjeta: #1b1b20; --linea: #2c2c33; --pino: #26262d;
+  --crema: #f4f4f5; --papel: #f4f4f5; --mostaza: #1fd65f; --mostaza-claro: #3be476; --bordo: #a23a2c;
+  --texto: #f4f4f5; --suave: #a1a1aa; --ok: #1fd65f; --error: #ff8a7f; --tinta: #0e0e10;
+  --cambio: rgba(31, 214, 95, .18);
+  --display: "Sofia Sans Extra Condensed", "Arial Narrow", Impact, sans-serif;
+  --cuerpo: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -34,7 +34,7 @@ button { cursor: pointer; }
 /* barra superior */
 .top { position: sticky; top: 0; z-index: 30; background: var(--noche); border-bottom: 1px solid var(--linea); padding-top: env(safe-area-inset-top, 0px); }
 .top .wrap { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding-block: 8px; }
-.marca { font-family: var(--display); font-weight: 800; font-size: 20px; }
+.marca { font-family: var(--display); font-weight: 800; font-size: 24px; text-transform: uppercase; letter-spacing: .02em; }
 .marca small { font-family: var(--cuerpo); font-weight: 800; font-size: 11px; letter-spacing: .18em; text-transform: uppercase; color: var(--mostaza); border: 1.5px dashed var(--mostaza); border-radius: 4px; padding: 2px 8px; margin-left: 10px; }
 .pestanas { display: flex; gap: 4px; margin-left: 8px; }
 .pestana { background: transparent; border: 0; border-radius: 8px; padding: 8px 14px; font-weight: 700; color: var(--suave); min-height: 40px; }
@@ -47,11 +47,12 @@ button { cursor: pointer; }
 .btn:disabled { opacity: .4; cursor: not-allowed; }
 .btn.fuerte { background: var(--mostaza); border-color: var(--mostaza); color: var(--tinta); font-weight: 800; }
 .btn.chico { min-height: 32px; padding: 4px 10px; font-size: 13px; }
+a.btn { color: inherit; text-decoration: none; }
 
 /* login */
 .entrada { min-height: 100vh; display: grid; place-items: center; padding: 20px; }
 .tarjeta-login { width: min(380px, 100%); background: var(--tarjeta); border: 1px solid var(--linea); border-radius: 18px; padding: 28px; display: grid; gap: 14px; }
-.tarjeta-login h1 { font-family: var(--display); font-size: 26px; margin: 0; }
+.tarjeta-login h1 { font-family: var(--display); font-size: 34px; margin: 0; text-transform: uppercase; }
 .campo { display: grid; gap: 6px; }
 .campo label { font-size: 13px; font-weight: 700; color: var(--suave); }
 .campo input, .campo select, .campo textarea { background: var(--noche); border: 1.5px solid var(--linea); border-radius: 10px; padding: 10px 12px; min-height: 42px; width: 100%; }
@@ -96,7 +97,7 @@ tr.sin-stock .nombre { color: var(--suave); }
 
 /* paneles de las otras pestañas */
 .panel { max-width: 760px; padding-block: 18px 60px; display: grid; gap: 16px; }
-.panel h2 { font-family: var(--display); margin: 0; font-size: 24px; }
+.panel h2 { font-family: var(--display); margin: 0; font-size: 30px; text-transform: uppercase; letter-spacing: .01em; }
 .grupo { background: var(--tarjeta); border: 1px solid var(--linea); border-radius: 14px; padding: 16px; display: grid; gap: 12px; }
 .fila-talles { display: flex; flex-wrap: wrap; gap: 10px; }
 .talle-nuevo { display: grid; gap: 4px; text-align: center; font-weight: 700; font-size: 13px; color: var(--suave); }
@@ -114,13 +115,16 @@ tr.sin-stock .nombre { color: var(--suave); }
 .lote .detalle { display: grid; gap: 2px; color: var(--suave); font-size: 13px; }
 .lote .deshecho { color: var(--suave); font-style: italic; }
 .flecha { color: var(--mostaza-claro); font-weight: 800; }
+.falta-stock { color: var(--error); font-weight: 700; }
+.etq.verde { color: var(--mostaza-claro); border-color: var(--mostaza); }
+.contador { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; margin-left: 6px; border-radius: 10px; background: var(--mostaza); color: var(--tinta); font-size: 11px; font-weight: 800; }
 
 /* ventanas */
 .velo { position: fixed; inset: 0; background: rgba(5, 12, 8, .75); z-index: 80; display: none; }
 .velo.on { display: block; }
 .ventana { position: fixed; z-index: 90; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(560px, calc(100% - 24px)); max-height: calc(100% - 24px); overflow: auto; background: var(--noche-2); border: 1px solid var(--linea); border-radius: 18px; padding: 20px; display: none; gap: 14px; }
 .ventana.on { display: grid; }
-.ventana h2 { font-family: var(--display); margin: 0; font-size: 22px; }
+.ventana h2 { font-family: var(--display); margin: 0; font-size: 28px; text-transform: uppercase; }
 .resumen { max-height: 300px; overflow: auto; border: 1px solid var(--linea); border-radius: 10px; }
 .resumen div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding: 6px 10px; border-bottom: 1px solid var(--linea); font-size: 13px; }
 .resumen div:last-child { border-bottom: 0; }
@@ -153,7 +157,8 @@ tr.sin-stock .nombre { color: var(--suave); }
     <span class="marca"><span id="marcaNombre"></span><small>Panel mayorista</small></span>
     <nav class="pestanas" role="tablist">
       <button class="pestana" role="tab" aria-selected="true" data-pestana="stock">Stock</button>
-      <button class="pestana" role="tab" aria-selected="false" data-pestana="nuevo">Modelo nuevo</button>
+      <button class="pestana" role="tab" aria-selected="false" data-pestana="pedidos">Pedidos<span class="contador" id="contadorPedidos" hidden></span></button>
+      <button class="pestana" role="tab" aria-selected="false" data-pestana="tienda">Modelos de la tienda</button>
       <button class="pestana" role="tab" aria-selected="false" data-pestana="historial">Historial</button>
     </nav>
     <span class="espacio"></span>
@@ -170,7 +175,7 @@ tr.sin-stock .nombre { color: var(--suave); }
         <option value="todos">Todos los modelos</option>
         <option value="con">Con stock</option>
         <option value="sin">Sin stock</option>
-        <option value="ocultos">Ocultos en la tienda</option>
+        <option value="ocultos">Ocultos en la tienda (no se ven en la web)</option>
         <option value="cambios">Con cambios sin guardar</option>
       </select>
       <button class="btn" id="btnCurva" type="button" disabled>Cargar por curva</button>
@@ -179,36 +184,30 @@ tr.sin-stock .nombre { color: var(--suave); }
       <button class="btn" id="btnDescartar" type="button" disabled>Descartar</button>
       <button class="btn fuerte" id="btnGuardar" type="button" disabled>Guardar cambios</button>
     </div>
-    <p class="ayuda">Escribí en las celdas, o pegá un bloque copiado de Excel. Las celdas en mostaza son cambios sin guardar. Enter baja a la fila de abajo.</p>
+    <p class="ayuda">Escribí en las celdas, o pegá un bloque copiado de Excel. Las celdas en verde son cambios sin guardar. Este stock es solo del mayorista: no cambia el de la tienda. Enter baja a la fila de abajo.</p>
     <div class="tabla-caja"><table id="tabla"><thead id="cabeza"></thead><tbody id="cuerpo"></tbody></table></div>
     <div class="vacio" id="cargando">Cargando la planilla...</div>
   </div></section>
 
-  <!-- MODELO NUEVO -->
-  <section id="pestanaNuevo" hidden><div class="wrap"><form class="panel" id="formNuevo">
-    <h2>Modelo nuevo</h2>
-    <div class="grupo">
-      <div class="campo"><label for="nNombre">Nombre</label><input id="nNombre" maxlength="200" placeholder="Boca Juniors - Retro 2004" required></div>
-      <div class="campo"><label for="nPrecio">Precio de la tienda (por unidad)</label><input id="nPrecio" type="number" min="1" step="any" inputmode="decimal" placeholder="75000" required></div>
+  <!-- PEDIDOS -->
+  <section id="pestanaPedidos" hidden><div class="wrap"><div class="panel" style="max-width:900px">
+    <h2>Pedidos de la web</h2>
+    <p class="ayuda">Cada pedido que arma un cliente en la web queda acá con su código, que viaja en el mensaje de WhatsApp. Al confirmarlo se descuenta el stock; si lo cancelás después, se devuelve.</p>
+    <div class="herramientas" style="padding-block:0">
+      <select id="estadoPedidos" aria-label="Estado del pedido">
+        <option value="nuevo">Por confirmar</option><option value="confirmado">Confirmados</option><option value="despachado">Despachados</option><option value="cancelado">Cancelados</option><option value="todos">Todos</option>
+      </select>
+      <span class="espacio"></span><span class="estado" id="cuentaPedidos"></span>
     </div>
-    <div class="grupo">
-      <b>Talles y stock</b>
-      <div class="fila-talles" id="nTalles"></div>
-      <div class="acciones" style="justify-content:flex-start">
-        <input id="nTalleExtra" class="celda" style="width:110px;border-color:var(--linea)" placeholder="Otro talle" maxlength="40">
-        <button class="btn chico" id="nAgregarTalle" type="button">Agregar talle</button>
-      </div>
-    </div>
-    <div class="grupo"><b>Categorías</b><div class="categorias" id="nCategorias">Cargando...</div></div>
-    <div class="grupo">
-      <b>Fotos (hasta 4)</b>
-      <input type="file" id="nFotos" accept="image/jpeg,image/png,image/webp" multiple>
-      <div class="previas" id="nPrevias"></div>
-    </div>
-    <label class="grupo" style="grid-auto-flow:column;justify-content:start;align-items:center"><input type="checkbox" id="nPublicar"> Publicar en la tienda y en el mayorista apenas se cree</label>
-    <div class="mensaje" id="errorNuevo" role="alert"></div>
-    <div class="acciones" style="justify-content:flex-start"><button class="btn fuerte" id="btnCrear" type="submit">Crear modelo</button></div>
-  </form></div></section>
+    <div id="listaPedidos" style="display:grid;gap:10px"></div>
+  </div></div></section>
+
+  <!-- MODELOS DE LA TIENDA -->
+  <section id="pestanaTienda" hidden><div class="wrap"><div class="panel" style="max-width:900px">
+    <h2>Modelos de la tienda</h2>
+    <p class="ayuda">Acá aparecen los modelos que subiste a Tiendanube y todavía no están en el mayorista. Incluir un modelo no cambia el stock de la tienda ni el del mayorista: elegís con cuánto arranca.</p>
+    <div id="listaTienda" style="display:grid;gap:10px"></div>
+  </div></div></section>
 
   <!-- HISTORIAL -->
   <section id="pestanaHistorial" hidden><div class="wrap"><div class="panel">
@@ -238,7 +237,7 @@ tr.sin-stock .nombre { color: var(--suave); }
   <p class="ayuda" id="revisionResumen"></p>
   <div class="resumen" id="revisionLista"></div>
   <div class="aviso-error" id="revisionError" hidden></div>
-  <div class="acciones"><button class="btn" type="button" data-cerrar id="btnVolver">Volver a la planilla</button><button class="btn fuerte" id="btnConfirmar" type="button">Guardar en Tiendanube</button></div>
+  <div class="acciones"><button class="btn" type="button" data-cerrar id="btnVolver">Volver a la planilla</button><button class="btn fuerte" id="btnConfirmar" type="button">Guardar cambios</button></div>
 </section>
 
 <div class="toast" id="toast" role="status" hidden></div>
@@ -255,6 +254,7 @@ let pend = new Map();          // "producto|TALLE" -> cambio pendiente
 let seleccion = new Set();     // ids de modelos tildados
 let visibles = [];             // modelos que se ven ahora, en orden
 let reintentoLogin = false;
+let planillaVieja = false;     // el stock cambió desde otra pestaña (un pedido, un modelo incluido)
 
 /* ---------- red ---------- */
 async function api(ruta, { metodo = "GET", cuerpo } = {}) {
@@ -284,7 +284,7 @@ async function arrancar() {
   if (!e.usuario) return mostrarLogin();
   entrar(e.usuario);
 }
-function entrar(usuario) { $("vistaLogin").hidden = true; $("vistaApp").hidden = false; $("nombreUsuario").textContent = usuario; cargarPlanilla(); }
+function entrar(usuario) { $("vistaLogin").hidden = true; $("vistaApp").hidden = false; $("nombreUsuario").textContent = usuario; cargarPlanilla(); contarPedidos(); }
 $("formLogin").addEventListener("submit", async (ev) => {
   ev.preventDefault(); $("errorLogin").textContent = ""; $("btnLogin").disabled = true; reintentoLogin = true;
   try { const r = await api("/login", { metodo: "POST", cuerpo: { usuario: $("lUsuario").value, clave: $("lClave").value } }); entrar(r.usuario); }
@@ -299,9 +299,11 @@ $("btnSalir").addEventListener("click", async () => {
 /* ---------- pestañas ---------- */
 document.querySelectorAll(".pestana").forEach((b) => b.addEventListener("click", () => {
   document.querySelectorAll(".pestana").forEach((x) => x.setAttribute("aria-selected", String(x === b)));
-  ["stock", "nuevo", "historial"].forEach((p) => ($("pestana" + p[0].toUpperCase() + p.slice(1)).hidden = p !== b.dataset.pestana));
+  ["stock", "pedidos", "tienda", "historial"].forEach((p) => ($("pestana" + p[0].toUpperCase() + p.slice(1)).hidden = p !== b.dataset.pestana));
+  if (b.dataset.pestana === "stock" && planillaVieja && !pend.size) cargarPlanilla();
   if (b.dataset.pestana === "historial") cargarHistorial();
-  if (b.dataset.pestana === "nuevo") prepararNuevo();
+  if (b.dataset.pestana === "pedidos") cargarPedidos();
+  if (b.dataset.pestana === "tienda") cargarTienda();
 }));
 
 /* ---------- planilla ---------- */
@@ -311,7 +313,11 @@ async function cargarPlanilla() {
     const d = await api("/stock"); productos = d.productos; maximo = d.stock_maximo;
     const extra = new Set(); productos.forEach((p) => p.variantes.forEach((v) => { if (esEstandar(v.talle)) extra.add(norm(v.talle)); }));
     columnas = ORDEN.filter((t) => ["S", "M", "L", "XL", "XXL"].includes(t) || extra.has(t));
-    pend.clear(); seleccion.clear(); $("cargando").hidden = true; pintar();
+    pend.clear(); seleccion.clear(); planillaVieja = false; $("cargando").hidden = true; pintar();
+    if (d.vacio) {
+      $("cargando").hidden = false;
+      $("cargando").innerHTML = 'El stock del mayorista está vacío. Para arrancar, podés copiar una sola vez el stock que hoy tiene la tienda.<br><br><button class="btn fuerte" id="btnCargaInicial" type="button">Copiar el stock de la tienda</button>';
+    }
   } catch (e) { $("cargando").hidden = false; $("cargando").textContent = "No se pudo cargar la planilla: " + e.message; }
 }
 const clave = (p, t) => p + "|" + norm(t);
@@ -466,9 +472,9 @@ let enviando = false, modoRecarga = false;
 $("btnGuardar").addEventListener("click", () => {
   const cambios = [...pend.values()]; const nombre = (id) => productos.find((p) => p.id === id).nombre;
   const delta = cambios.reduce((a, c) => a + c.despues - (c.antes || 0), 0);
-  $("revisionResumen").textContent = `${cambios.length} ${cambios.length === 1 ? "cambio" : "cambios"} · ${delta >= 0 ? "+" : ""}${delta} camisetas en total. Se guardan directo en Tiendanube.`;
+  $("revisionResumen").textContent = `${cambios.length} ${cambios.length === 1 ? "cambio" : "cambios"} · ${delta >= 0 ? "+" : ""}${delta} camisetas en total. Se guardan en el stock del mayorista; la tienda no se toca.`;
   $("revisionLista").innerHTML = cambios.map((c) => `<div><span>${esc(nombre(c.producto))} · <b>${esc(c.talle)}</b>${c.tipo === "talle_nuevo" ? " (talle nuevo)" : ""}</span><span>${c.antes == null ? "—" : c.antes} <span class="flecha">→</span> <b>${c.despues}</b></span></div>`).join("");
-  $("revisionError").hidden = true; modoRecarga = false; $("btnConfirmar").textContent = "Guardar en Tiendanube"; $("btnConfirmar").disabled = false; abrir("ventanaRevision");
+  $("revisionError").hidden = true; modoRecarga = false; $("btnConfirmar").textContent = "Guardar cambios"; $("btnConfirmar").disabled = false; abrir("ventanaRevision");
 });
 $("btnConfirmar").addEventListener("click", async () => {
   if (modoRecarga) { modoRecarga = false; cerrar(); await cargarPlanilla(); return; }
@@ -482,7 +488,7 @@ $("btnConfirmar").addEventListener("click", async () => {
     if (e.estado === 409) { modoRecarga = true; $("btnConfirmar").textContent = "Recargar planilla"; $("btnConfirmar").disabled = false; enviando = false; return; }
     $("btnConfirmar").disabled = false;
   }
-  enviando = false; $("btnConfirmar").textContent = "Guardar en Tiendanube";
+  enviando = false; $("btnConfirmar").textContent = "Guardar cambios";
 });
 
 /* ---------- historial ---------- */
@@ -492,8 +498,9 @@ async function cargarHistorial() {
     const lotes = await api("/historial");
     caja.innerHTML = lotes.length ? lotes.map((l) => {
       const f = new Date(l.fecha).toLocaleString("es-AR", { dateStyle: "medium", timeStyle: "short" });
-      const det = l.entradas.slice().reverse().map((e) => e.accion === "producto_nuevo"
-        ? `<div>Modelo nuevo: ${esc(e.producto)} (${esc(e.talle)})</div>`
+      const det = l.entradas.slice().reverse().map((e) => e.accion === "incluido"
+        ? `<div>Incluido en el mayorista: ${esc(e.producto)} (${esc(e.talle)}) · ${e.despues} camisetas de arranque</div>`
+        : e.accion === "carga_inicial" ? `<div>Carga inicial desde la tienda: ${esc(e.talle)}, ${e.despues} camisetas</div>`
         : `<div>${esc(e.producto)} · ${esc(e.talle)}: ${e.antes == null ? "—" : e.antes} <span class="flecha">→</span> ${e.despues}${e.accion === "talle_nuevo" ? " (talle nuevo)" : ""}</div>`).join("");
       return `<article class="lote"><header><b>${esc(f)}</b><span>${esc(l.usuario)}</span><span>${l.entradas.length} ${l.entradas.length === 1 ? "cambio" : "cambios"}</span><span class="espacio"></span>
         ${l.se_puede_deshacer ? `<button class="btn chico" data-deshacer="${esc(l.lote)}">Deshacer</button>` : (l.deshecho ? '<span class="deshecho">Deshecho</span>' : "")}</header><div class="detalle">${det}</div></article>`;
@@ -509,48 +516,81 @@ $("listaHistorial").addEventListener("click", async (e) => {
   cargarHistorial();
 });
 
-/* ---------- modelo nuevo ---------- */
-let fotosNuevas = [], categoriasCargadas = false, tallesExtra = [];
-function prepararNuevo() {
-  if (!$("nTalles").children.length) pintarTallesNuevo();
-  if (!categoriasCargadas) api("/categorias").then((cs) => { categoriasCargadas = true; $("nCategorias").innerHTML = cs.map((c) => `<label><input type="checkbox" value="${c.id}"> ${esc(c.nombre)}</label>`).join(""); }).catch((e) => ($("nCategorias").textContent = "No se pudieron cargar: " + e.message));
-}
-function pintarTallesNuevo() {
-  const previos = {}; $("nTalles").querySelectorAll("input").forEach((i) => (previos[i.dataset.t] = i.value));
-  $("nTalles").innerHTML = ["S", "M", "L", "XL", "XXL", ...tallesExtra].map((t) => `<label class="talle-nuevo">${esc(t)}<input data-t="${esc(t)}" inputmode="numeric" maxlength="4" placeholder="0" value="${esc(previos[t] || "")}"></label>`).join("");
-}
-$("nAgregarTalle").addEventListener("click", () => { const t = norm($("nTalleExtra").value); if (t && !["S", "M", "L", "XL", "XXL", ...tallesExtra].includes(t)) { tallesExtra.push(t); pintarTallesNuevo(); } $("nTalleExtra").value = ""; });
-function reducirFoto(archivo) {
-  return new Promise((ok, mal) => {
-    const lector = new FileReader();
-    lector.onerror = () => mal(new Error("No se pudo leer " + archivo.name));
-    lector.onload = () => { const img = new Image(); img.onerror = () => mal(new Error(archivo.name + " no es una imagen válida"));
-      img.onload = () => { const k = Math.min(1, 1600 / Math.max(img.width, img.height)), c = document.createElement("canvas"); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
-        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height); ok({ nombre: archivo.name.replace(/\.[^.]+$/, "") + ".jpg", datos: c.toDataURL("image/jpeg", 0.88) }); };
-      img.src = lector.result; };
-    lector.readAsDataURL(archivo);
-  });
-}
-$("nFotos").addEventListener("change", async (e) => {
-  $("errorNuevo").textContent = "";
-  try { for (const f of [...e.target.files].slice(0, 4 - fotosNuevas.length)) fotosNuevas.push(await reducirFoto(f)); } catch (err) { $("errorNuevo").textContent = err.message; }
-  e.target.value = ""; pintarPrevias();
-});
-function pintarPrevias() { $("nPrevias").innerHTML = fotosNuevas.map((f, i) => `<figure><img src="${f.datos}" alt=""><button type="button" data-quitar="${i}" aria-label="Quitar foto">×</button></figure>`).join(""); }
-$("nPrevias").addEventListener("click", (e) => { const b = e.target.closest("[data-quitar]"); if (b) { fotosNuevas.splice(Number(b.dataset.quitar), 1); pintarPrevias(); } });
-$("formNuevo").addEventListener("submit", async (e) => {
-  e.preventDefault(); $("errorNuevo").textContent = ""; $("errorNuevo").className = "mensaje";
-  const talles = {}; $("nTalles").querySelectorAll("input").forEach((i) => { const n = parseInt(i.value.replace(/\D/g, ""), 10); if (!Number.isNaN(n)) talles[i.dataset.t] = n; });
-  if (!Object.keys(talles).length) { $("errorNuevo").textContent = "Cargá el stock de al menos un talle (puede ser 0)."; return; }
-  if (!fotosNuevas.length && !confirm("No cargaste fotos. El modelo no se va a ver en la web mayorista hasta que tenga una. ¿Crear igual?")) return;
-  $("btnCrear").disabled = true;
+/* ---------- pedidos ---------- */
+const ESTADO_PEDIDO = { nuevo: ["Por confirmar", ""], confirmado: ["Confirmado", "verde"], despachado: ["Despachado", "verde"], cancelado: ["Cancelado", "oculto"] };
+const dinero = (n) => "$" + Number(n).toLocaleString("es-AR");
+async function contarPedidos() {
   try {
-    const r = await api("/productos", { metodo: "POST", cuerpo: { nombre: $("nNombre").value, precio: Number($("nPrecio").value), talles, publicado: $("nPublicar").checked, fotos: fotosNuevas,
-      categorias: [...$("nCategorias").querySelectorAll("input:checked")].map((i) => Number(i.value)) } });
-    $("errorNuevo").className = "mensaje ok"; $("errorNuevo").textContent = `Creado: ${r.nombre}. ${r.publicado ? "Ya está publicado." : "Quedó oculto: publicalo desde Tiendanube cuando esté listo."}`;
-    $("formNuevo").reset(); fotosNuevas = []; pintarPrevias(); pintarTallesNuevo();
-  } catch (err) { $("errorNuevo").textContent = err.message; }
-  finally { $("btnCrear").disabled = false; }
+    const d = await api("/pedidos?estado=nuevo"), n = d.pedidos.length, c = $("contadorPedidos");
+    c.textContent = n; c.hidden = n === 0;
+  } catch (e) {}
+}
+async function cargarPedidos(silencioso = false) {
+  const caja = $("listaPedidos"); if (!silencioso) caja.innerHTML = '<p class="ayuda">Cargando...</p>';
+  try {
+    const d = await api("/pedidos?estado=" + $("estadoPedidos").value);
+    $("cuentaPedidos").textContent = `${d.pedidos.length} ${d.pedidos.length === 1 ? "pedido" : "pedidos"}`;
+    const nuevos = d.cuenta.nuevo || 0, c = $("contadorPedidos"); c.textContent = nuevos; c.hidden = nuevos === 0;
+    caja.innerHTML = d.pedidos.length ? d.pedidos.map(tarjetaPedido).join("") : '<p class="ayuda">No hay pedidos en esta lista.</p>';
+  } catch (e) { if (!silencioso) caja.innerHTML = `<p class="ayuda">No se pudo cargar: ${esc(e.message)}</p>`; }
+}
+function tarjetaPedido(p) {
+  const f = new Date(p.fecha).toLocaleString("es-AR", { dateStyle: "medium", timeStyle: "short" }), [et, clase] = ESTADO_PEDIDO[p.estado] || [p.estado, ""];
+  const lineas = p.items.map((i) => { const corto = p.estado === "nuevo" && i.hay < i.cantidad;
+    return `<div>${esc(i.nombre)} · <b>${esc(i.talle)}</b>: pidió ${i.cantidad}${p.estado === "nuevo" ? ` · hay ${i.hay}` : ""}${corto ? ' <span class="falta-stock">(no alcanza)</span>' : ""}</div>`; }).join("");
+  const quien = [p.nombre, p.negocio].filter(Boolean).map(esc).join(" · ");
+  const botones = (p.estado === "nuevo" ? `<button class="btn fuerte chico" data-confirmar="${esc(p.codigo)}" ${p.falta ? "disabled title=\"No alcanza el stock\"" : ""}>Confirmar y descontar stock</button><button class="btn chico" data-cancelar="${esc(p.codigo)}">Cancelar</button>` : "")
+    + (p.estado === "confirmado" ? `<button class="btn fuerte chico" data-despachar="${esc(p.codigo)}">Marcar como despachado</button><button class="btn chico" data-cancelar="${esc(p.codigo)}">Cancelar y devolver el stock</button>` : "");
+  return `<article class="lote"><header><b>${esc(p.codigo)}</b><span class="etq ${clase}">${et}</span><span>${esc(f)}</span><span>${p.unidades} ${p.unidades === 1 ? "camiseta" : "camisetas"}${p.total ? " · ~" + dinero(p.total) : ""}</span><span class="espacio"></span>${botones}</header>
+    <div class="detalle">${quien ? `<div>${quien}</div>` : ""}${lineas}${p.notas ? `<div>Notas: ${esc(p.notas)}</div>` : ""}${p.falta ? '<div class="falta-stock">No alcanza el stock para confirmar. Hablalo con el cliente o cargá el stock en la planilla.</div>' : ""}</div></article>`;
+}
+$("estadoPedidos").addEventListener("change", () => cargarPedidos());
+$("listaPedidos").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-confirmar],[data-cancelar],[data-despachar]"); if (!b) return;
+  const codigo = b.dataset.confirmar || b.dataset.cancelar || b.dataset.despachar, accion = b.dataset.confirmar ? "confirmar" : b.dataset.cancelar ? "cancelar" : "despachar";
+  if (accion === "confirmar" && !confirm(`¿Confirmar el pedido ${codigo}? Se descuenta el stock.`)) return;
+  if (accion === "cancelar" && !confirm(`¿Cancelar el pedido ${codigo}? Si ya estaba confirmado, el stock se devuelve.`)) return;
+  b.disabled = true;
+  try {
+    const r = await api(`/pedidos/${encodeURIComponent(codigo)}/${accion}`, { metodo: "POST" });
+    planillaVieja = true;
+    aviso(accion === "confirmar" ? `Pedido ${codigo} confirmado: se descontaron ${r.unidades} camisetas.` : accion === "cancelar" ? (r.devuelto ? `Pedido ${codigo} cancelado: el stock volvió.` : `Pedido ${codigo} cancelado.`) : `Pedido ${codigo} marcado como despachado.`);
+  } catch (err) {
+    alert(err.message + (err.conflictos && err.conflictos.length ? "\n\n" + err.conflictos.map((c) => `${c.modelo || ""} ${c.talle || ""}: ${c.motivo}`).join("\n") : ""));
+  }
+  cargarPedidos(true);
+});
+/* Los pedidos nuevos aparecen solos: se revisa cada medio minuto mientras la pestaña está a la vista. */
+setInterval(() => {
+  if ($("vistaApp").hidden || document.hidden) return;
+  if ($("pestanaPedidos").hidden) contarPedidos(); else cargarPedidos(true);
+}, 30000);
+
+/* ---------- modelos de la tienda ---------- */
+async function cargarTienda() {
+  const caja = $("listaTienda"); caja.innerHTML = '<p class="ayuda">Buscando en la tienda...</p>';
+  try {
+    const d = await api("/tienda/nuevos");
+    caja.innerHTML = d.nuevos.length ? d.nuevos.map((n) => `<article class="lote"><header><img src="/admin/api/foto/${n.id}" alt="" width="44" height="44" style="border-radius:6px;object-fit:cover;background:#2b2b2b"><b>${esc(n.nombre)}</b><span>la tienda tiene ${n.unidades} ${n.unidades === 1 ? "camiseta" : "camisetas"}</span><span class="espacio"></span>
+      <button class="btn chico" data-incluir="${n.id}" data-copiar="0">Incluir con stock 0</button><button class="btn fuerte chico" data-incluir="${n.id}" data-copiar="1">Incluir copiando el stock de la tienda</button></header>
+      <div class="detalle"><div>Talles: ${n.talles.map((t) => `${esc(t.talle)} (${t.stock})`).join(", ") || "—"}</div></div></article>`).join("")
+      : `<p class="ayuda">${d.vacio ? "El mayorista todavía no tiene modelos. Copiá el stock de la tienda desde la pestaña Stock." : "No hay modelos nuevos: todo lo publicado en la tienda con foto ya está en el mayorista."}</p>`;
+  } catch (e) { caja.innerHTML = `<p class="ayuda">No se pudo cargar: ${esc(e.message)}</p>`; }
+}
+$("listaTienda").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-incluir]"); if (!b) return;
+  b.disabled = true;
+  try {
+    const r = await api("/tienda/incluir", { metodo: "POST", cuerpo: { producto: Number(b.dataset.incluir), copiar_stock: b.dataset.copiar === "1" } });
+    planillaVieja = true; aviso(`${r.nombre} ya está en el mayorista.`);
+  } catch (err) { alert(err.message); }
+  cargarTienda();
+});
+document.addEventListener("click", async (e) => {
+  if (!e.target.closest("#btnCargaInicial")) return;
+  const b = e.target.closest("#btnCargaInicial"); b.disabled = true;
+  try { const r = await api("/tienda/cargar-stock", { metodo: "POST" }); aviso(`Listo: ${r.modelos} modelos copiados de la tienda.`); await cargarPlanilla(); }
+  catch (err) { alert(err.message); b.disabled = false; }
 });
 
 arrancar();

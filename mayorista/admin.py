@@ -1,21 +1,22 @@
-"""El panel de administración del mayorista: stock como una planilla.
+"""El panel de administración del mayorista: stock como una planilla y pedidos.
 
-Todo cuelga de /admin/api y exige la sesión de `acceso`. Lo que se edita es el
-stock de Tiendanube (la única fuente de verdad), así que la tienda minorista y
-la mayorista siempre muestran lo mismo.
+Todo cuelga de /admin/api y exige la sesión de `acceso`. El stock que se edita
+es el PROPIO del mayorista (ver almacen.py): no se mezcla con el de la tienda.
+Tiendanube solo aporta los nombres y las fotos, y se usa para traer los modelos
+nuevos que la persona subió a su tienda.
 
 Cómo se protege un guardado:
 
   · Cada cambio viaja con el valor que la persona VIO ("antes"). Si en el medio
-    entró una venta y el stock ya no es ese, no se pisa: se avisa (409) y no se
-    aplica nada. Todo o nada, para que un cambio de a varios no quede a medias.
+    entró un pedido confirmado y el stock ya no es ese, no se pisa: se avisa
+    (409) y no se aplica nada. Todo o nada, para que un cambio de a varios no
+    quede a medias (en la base es una sola transacción).
   · Cada guardado queda en el historial, y se puede deshacer entero.
+  · Confirmar un pedido descuenta el stock; cancelarlo lo devuelve.
 """
 
 from __future__ import annotations
 
-import base64
-import binascii
 import logging
 from typing import Callable, Literal
 
@@ -23,6 +24,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 import acceso
+import almacen
 import historial as hist
 import tn
 
@@ -30,9 +32,6 @@ log = logging.getLogger("mayorista.admin")
 
 MAXIMO_DE_CAMBIOS = 500
 MAXIMO_DE_STOCK = 9999
-MAXIMO_DE_FOTOS = 4
-PESO_MAXIMO_DE_FOTO = 5 * 1024 * 1024
-TIPOS_DE_FOTO = (b"\xff\xd8\xff", b"\x89PNG\r\n\x1a\n", b"RIFF")  # jpeg, png, webp
 
 ORDEN_DE_TALLES = ["XS", "S", "M", "L", "XL", "XXL", "XXXL"]
 
@@ -61,18 +60,9 @@ class Aplicar(BaseModel):
     cambios: list[Cambio] = Field(max_length=MAXIMO_DE_CAMBIOS)
 
 
-class Foto(BaseModel):
-    nombre: str = Field(max_length=120)
-    datos: str  # base64, con o sin el prefijo "data:image/...;base64,"
-
-
-class NuevoModelo(BaseModel):
-    nombre: str = Field(min_length=2, max_length=200)
-    precio: float = Field(gt=0, lt=100_000_000)
-    talles: dict[str, int]
-    categorias: list[int] = []
-    publicado: bool = False
-    fotos: list[Foto] = Field(default=[], max_length=MAXIMO_DE_FOTOS)
+class Incluir(BaseModel):
+    producto: int
+    copiar_stock: bool = False
 
 
 # -- Ayudantes ----------------------------------------------------------------
@@ -88,61 +78,62 @@ def _clave_de_talle(talle: str) -> tuple[int, str]:
     return (ORDEN_DE_TALLES.index(base) if base in ORDEN_DE_TALLES else 99, talle)
 
 
-def _ubicacion(variante: dict) -> str | None:
-    niveles = variante.get("inventory_levels") or []
-    return niveles[0].get("location_id") if niveles else None
+def _nombre_de(p: dict | None, id: int) -> str:
+    nombre = ((p or {}).get("name") or {}).get("es")
+    return nombre or (f"Modelo {id} (ya no está en la tienda)" if p is None else f"Modelo {id}")
 
 
-def vista_de_producto(p: dict) -> dict:
-    variantes = [
-        {
-            "id": v["id"],
-            "talle": talle_de(v),
-            # None = Tiendanube no lleva la cuenta de esta variante: no se edita.
-            "stock": v.get("stock") if v.get("stock_management", True) else None,
-        }
-        for v in p.get("variants") or []
-    ]
+def vista_de_producto(p: dict | None, id: int, filas: list[dict]) -> dict:
+    """Un modelo para la planilla: los datos de la tienda y el stock propio."""
+    variantes = [{"id": f["id"], "talle": f["talle"], "stock": f["cantidad"]} for f in filas]
     variantes.sort(key=lambda v: _clave_de_talle(v["talle"]))
-    precio = next((v.get("price") for v in p.get("variants") or [] if v.get("price")), None)
     return {
-        "id": p["id"],
-        "nombre": (p.get("name") or {}).get("es") or "Sin nombre",
-        "publicado": bool(p.get("published")),
-        "categorias": [(c.get("name") or {}).get("es", "") for c in p.get("categories") or []],
-        "precio": precio,
-        "foto": bool(p.get("images")),
+        "id": id,
+        "nombre": _nombre_de(p, id),
+        "publicado": bool(p and p.get("published")),
+        "categorias": [(c.get("name") or {}).get("es", "") for c in (p or {}).get("categories") or []],
+        "foto": bool(p and p.get("images")),
         "variantes": variantes,
     }
 
 
-def _normalizar(talle: str) -> str:
-    return " ".join(talle.upper().split())
+def es_elegible(p: dict) -> bool:
+    """Un modelo de la tienda que puede estar en el mayorista: publicado, con foto y con stock contado."""
+    return bool(p.get("published") and p.get("images") and any(v.get("stock") is not None for v in p.get("variants") or []))
 
 
-def decodificar_foto(foto: Foto) -> dict:
-    """Valida una foto subida y la deja como la pide Tiendanube."""
-    datos = foto.datos.split(",", 1)[1] if foto.datos.startswith("data:") else foto.datos
-    try:
-        crudo = base64.b64decode(datos, validate=True)
-    except (binascii.Error, ValueError):
-        raise HTTPException(422, f"La foto «{foto.nombre}» no se pudo leer.") from None
-    if len(crudo) > PESO_MAXIMO_DE_FOTO:
-        raise HTTPException(422, f"La foto «{foto.nombre}» pesa más de 5 MB.")
-    if not crudo.startswith(TIPOS_DE_FOTO):
-        raise HTTPException(422, f"La foto «{foto.nombre}» tiene que ser JPG, PNG o WebP.")
-    nombre = "".join(c for c in foto.nombre if c.isalnum() or c in "._-") or "foto"
-    return {"filename": nombre, "attachment": base64.b64encode(crudo).decode()}
+def filas_de_producto(p: dict, copiar_stock: bool) -> list[tuple[int, str, int]]:
+    """Las filas de stock de un modelo: un talle por variante, con el stock de la tienda o en 0."""
+    filas: list[tuple[int, str, int]] = []
+    vistos: set[str] = set()
+    for v in p.get("variants") or []:
+        if v.get("stock") is None:  # Tiendanube no cuenta esa variante: en mayorista hace falta saber cuántas hay
+            continue
+        talle = almacen.limpiar_talle(talle_de(v))
+        if almacen.normalizar(talle) in vistos:
+            continue
+        vistos.add(almacen.normalizar(talle))
+        filas.append((p["id"], talle, max(0, int(v["stock"])) if copiar_stock else 0))
+    return filas
+
+
+def filas_iniciales(productos: list[dict]) -> list[tuple[int, str, int]]:
+    """Para la primera vez: todo lo que hay en la tienda, con su stock actual."""
+    return [fila for p in productos if es_elegible(p) for fila in filas_de_producto(p, True)]
 
 
 # -- El router ----------------------------------------------------------------
 
 
-def crear_router(historial, invalidar_cache: Callable[[], None]) -> APIRouter:
+def crear_router(historial, invalidar_cache: Callable[[], None], almacen_) -> APIRouter:
     router = APIRouter(prefix="/admin/api")
+    nombres: dict[int, str] = {}  # los últimos nombres vistos, para el historial
+
+    def configurado() -> bool:
+        return acceso.configurado() and historial is not None and almacen_ is not None and tn.configurado()
 
     def exigir_panel() -> None:
-        if not acceso.configurado() or historial is None or not tn.configurado():
+        if not configurado():
             raise HTTPException(503, "El panel no está configurado en el servidor.")
 
     def usuario_actual(request: Request, _=Depends(exigir_panel)) -> str:
@@ -155,12 +146,22 @@ def crear_router(historial, invalidar_cache: Callable[[], None]) -> APIRouter:
             raise HTTPException(403, "Pedido no permitido.")
         return usuario
 
+    def nombre(id: int) -> str:
+        return nombres.get(id) or f"Modelo {id}"
+
+    def anotar(lote: str, usuario: str, entradas: list[dict]) -> None:
+        """Lo que ya se aplicó no se deshace por un fallo del historial: se avisa en el log."""
+        try:
+            historial.anotar(lote, usuario, entradas)
+        except Exception:  # noqa: BLE001
+            log.exception("No se pudo anotar en el historial (lote %s)", lote)
+
     # -- Sesión --
 
     @router.get("/estado")
     def estado(request: Request) -> dict:
         """Para que la página sepa si mostrar el login, sin dar error."""
-        if not acceso.configurado() or historial is None or not tn.configurado():
+        if not configurado():
             return {"configurado": False, "usuario": None}
         return {"configurado": True, "usuario": acceso.leer_sesion(request.cookies.get(acceso.COOKIE))}
 
@@ -189,19 +190,29 @@ def crear_router(historial, invalidar_cache: Callable[[], None]) -> APIRouter:
         response.delete_cookie(acceso.COOKIE, path="/")
         return {"ok": True}
 
-    # -- Leer --
+    # -- Stock --
 
-    @router.get("/stock")
-    def stock(usuario: str = Depends(usuario_actual)) -> dict:
+    def _productos_de_la_tienda() -> list[dict]:
         try:
             productos = tn.todos_los_productos()
         except tn.ErrorDeTiendanube as e:
             raise HTTPException(502, str(e)) from None
         for p in productos:
+            nombres[p["id"]] = _nombre_de(p, p["id"])
             imagenes = sorted(p.get("images") or [], key=lambda i: i.get("position") or 0)
             if imagenes:
                 _foto_de_producto[p["id"]] = imagenes[0]["src"]
-        return {"productos": [vista_de_producto(p) for p in productos], "stock_maximo": MAXIMO_DE_STOCK}
+        return productos
+
+    @router.get("/stock")
+    def stock(usuario: str = Depends(usuario_actual)) -> dict:
+        productos = {p["id"]: p for p in _productos_de_la_tienda()}
+        por_modelo: dict[int, list[dict]] = {}
+        for f in almacen_.filas():
+            por_modelo.setdefault(f["producto_id"], []).append(f)
+        vistas = [vista_de_producto(productos.get(id), id, filas) for id, filas in por_modelo.items()]
+        vistas.sort(key=lambda v: v["nombre"].lower())
+        return {"productos": vistas, "stock_maximo": MAXIMO_DE_STOCK, "vacio": not por_modelo}
 
     @router.get("/foto/{producto}")
     def foto(producto: int, usuario: str = Depends(usuario_actual)) -> Response:
@@ -214,101 +225,73 @@ def crear_router(historial, invalidar_cache: Callable[[], None]) -> APIRouter:
             raise HTTPException(502, "No se pudo cargar la foto") from None
         return Response(contenido, media_type="image/webp", headers={"Cache-Control": "private, max-age=3600"})
 
-    @router.get("/categorias")
-    def categorias(usuario: str = Depends(usuario_actual)) -> list[dict]:
-        try:
-            todas = tn.categorias()
-        except tn.ErrorDeTiendanube as e:
-            raise HTTPException(502, str(e)) from None
-        nombres = {c["id"]: (c.get("name") or {}).get("es", "") for c in todas}
-        return [
-            {"id": c["id"], "nombre": (f"{nombres.get(c['parent'], '')} › " if c.get("parent") else "") + nombres[c["id"]]}
-            for c in todas
-        ]
-
     # -- Guardar --
 
-    def _aplicar(usuario: str, cambios: list[Cambio], etiqueta: str = "") -> dict:
+    def _aplicar(usuario: str, cambios: list[Cambio]) -> dict:
         """El corazón: valida contra el stock de AHORA y aplica todo o nada."""
         if not cambios:
             raise HTTPException(422, "No hay cambios para guardar.")
-        try:
-            actuales = tn.productos_por_id([c.producto for c in cambios])
-        except tn.ErrorDeTiendanube as e:
-            raise HTTPException(502, str(e)) from None
+        filas = almacen_.filas({c.producto for c in cambios})
+        por_id = {f["id"]: f for f in filas}
 
         conflictos: list[dict] = []
-        stocks: list[tuple[int, int, int, str | None]] = []
-        altas: list[tuple[int, str, int, str]] = []
+        stocks: list[tuple[int, int, int]] = []
+        altas: list[tuple[int, str, int]] = []
         entradas: list[dict] = []
 
         for c in cambios:
-            p = actuales.get(c.producto)
-            if not p:
-                conflictos.append({"producto": c.producto, "motivo": "El modelo ya no existe."})
-                continue
-            nombre = (p.get("name") or {}).get("es", "")
-            variantes = {v["id"]: v for v in p.get("variants") or []}
+            modelo = nombre(c.producto)
+            del_modelo = [f for f in filas if f["producto_id"] == c.producto]
 
             if c.tipo == "stock":
-                v = variantes.get(c.variante or 0)
-                if not v:
-                    conflictos.append({"producto": c.producto, "modelo": nombre, "motivo": "Ese talle ya no existe."})
+                f = por_id.get(c.variante or 0)
+                if f is None or f["producto_id"] != c.producto:
+                    conflictos.append({"producto": c.producto, "modelo": modelo, "motivo": "Ese talle ya no existe."})
                     continue
-                if v.get("stock") is None:
-                    conflictos.append({"producto": c.producto, "modelo": nombre, "talle": talle_de(v), "motivo": "Tiendanube no lleva la cuenta de este talle."})
-                    continue
-                if v["stock"] != c.antes:
+                if f["cantidad"] != c.antes:
                     conflictos.append(
-                        {"producto": c.producto, "modelo": nombre, "talle": talle_de(v), "esperado": c.antes, "actual": v["stock"],
+                        {"producto": c.producto, "modelo": modelo, "talle": f["talle"], "esperado": c.antes, "actual": f["cantidad"],
                          "motivo": "El stock cambió mientras editabas."}
                     )
                     continue
-                if c.despues == v["stock"]:
+                if c.despues == f["cantidad"]:
                     continue
-                stocks.append((c.producto, v["id"], c.despues, _ubicacion(v)))
-                entradas.append({"accion": "stock", "producto_id": c.producto, "variante_id": v["id"], "producto": nombre, "talle": talle_de(v), "antes": v["stock"], "despues": c.despues})
+                stocks.append((f["id"], f["cantidad"], c.despues))
+                entradas.append({"accion": "stock", "producto_id": c.producto, "variante_id": f["id"], "producto": modelo, "talle": f["talle"], "antes": f["cantidad"], "despues": c.despues})
             else:
-                talle = (c.talle or "").strip()
+                talle = almacen.limpiar_talle(c.talle or "")
                 if not talle:
-                    conflictos.append({"producto": c.producto, "modelo": nombre, "motivo": "Falta el talle."})
+                    conflictos.append({"producto": c.producto, "modelo": modelo, "motivo": "Falta el talle."})
                     continue
-                if any(_normalizar(talle_de(v)) == _normalizar(talle) for v in variantes.values()):
-                    conflictos.append({"producto": c.producto, "modelo": nombre, "talle": talle, "motivo": "Ese talle ya existe."})
+                if not del_modelo:
+                    conflictos.append({"producto": c.producto, "modelo": modelo, "talle": talle, "motivo": "Ese modelo no está en el mayorista."})
                     continue
-                precio = next((v.get("price") for v in variantes.values() if v.get("price")), None)
-                if not precio:
-                    conflictos.append({"producto": c.producto, "modelo": nombre, "talle": talle, "motivo": "No hay precio de referencia para el talle nuevo."})
+                if any(almacen.normalizar(f["talle"]) == almacen.normalizar(talle) for f in del_modelo):
+                    conflictos.append({"producto": c.producto, "modelo": modelo, "talle": talle, "motivo": "Ese talle ya existe."})
                     continue
                 if c.despues == 0:
                     continue
-                altas.append((c.producto, talle, c.despues, precio))
-                entradas.append({"accion": "talle_nuevo", "producto_id": c.producto, "producto": nombre, "talle": talle, "antes": None, "despues": c.despues})
+                altas.append((c.producto, talle, c.despues))
+                entradas.append({"accion": "talle_nuevo", "producto_id": c.producto, "producto": modelo, "talle": talle, "antes": None, "despues": c.despues})
 
         if conflictos:
             raise HTTPException(409, detail={"mensaje": "No se guardó nada: algo cambió desde que abriste la planilla.", "conflictos": conflictos})
         if not stocks and not altas:
             return {"lote": None, "aplicados": 0, "creados": 0}
 
-        lote = hist.lote_nuevo()
-        hechos = 0
         try:
-            # De a 50, como pide Tiendanube, anotando cada bloque apenas se aplica.
-            for i in range(0, len(stocks), tn.MAXIMO_POR_LOTE):
-                trozo = stocks[i : i + tn.MAXIMO_POR_LOTE]
-                tn.actualizar_stock(trozo)
-                ids = {v for _, v, _, _ in trozo}
-                historial.anotar(lote, usuario, [e for e in entradas if e["accion"] == "stock" and e["variante_id"] in ids])
-                hechos += len(trozo)
-            for producto, talle, cantidad, precio in altas:
-                tn.crear_variante(producto, talle, cantidad, precio)
-                historial.anotar(lote, usuario, [e for e in entradas if e["accion"] == "talle_nuevo" and e["producto_id"] == producto and e["talle"] == talle])
-                hechos += 1
-        except tn.ErrorDeTiendanube as e:
-            invalidar_cache()
-            raise HTTPException(502, f"Se guardaron {hechos} cambios y después falló Tiendanube: {e}. Revisá el historial y recargá la planilla.") from None
+            nuevos = almacen_.aplicar(stocks, altas)
+        except almacen.Conflicto:
+            raise HTTPException(409, detail={"mensaje": "No se guardó nada: el stock cambió justo ahora. Recargá la planilla.", "conflictos": []}) from None
 
-        invalidar_cache()
+        # A cada talle nuevo se le anota el id de su fila, para poder deshacerlo.
+        ids_nuevos = iter(nuevos)
+        for e in entradas:
+            if e["accion"] == "talle_nuevo":
+                e["variante_id"] = next(ids_nuevos)
+
+        lote = hist.lote_nuevo()
+        anotar(lote, usuario, entradas)
         return {"lote": lote, "aplicados": len(stocks), "creados": len(altas)}
 
     @router.post("/stock/aplicar")
@@ -326,58 +309,138 @@ def crear_router(historial, invalidar_cache: Callable[[], None]) -> APIRouter:
         entradas = [e for e in historial.entradas_del_lote(lote) if e["accion"] in hist.REVERSIBLES and not e["deshecho"]]
         if not entradas:
             raise HTTPException(404, "No hay nada para deshacer en ese guardado.")
+        # Las altas de talle se deshacen dejando el talle en 0: el talle queda, vacío.
         cambios = [
-            Cambio(tipo="stock", producto=e["producto_id"], variante=e["variante_id"] or _variante_de(e),
-                   antes=e["despues"], despues=e["antes"] or 0)
+            Cambio(tipo="stock", producto=e["producto_id"], variante=e["variante_id"], antes=e["despues"], despues=e["antes"] or 0)
             for e in entradas
         ]
-        # Las altas de talle se deshacen dejando el talle en 0: el talle queda, vacío.
         resultado = _aplicar(usuario, cambios)
         historial.marcar_deshecho(lote)
         return resultado
 
-    def _variante_de(entrada: dict) -> int:
-        # Un talle creado en un guardado no guardó el id de su variante: se busca por nombre.
-        p = tn.productos_por_id([entrada["producto_id"]]).get(entrada["producto_id"]) or {}
-        for v in p.get("variants") or []:
-            if _normalizar(talle_de(v)) == _normalizar(entrada.get("talle") or ""):
-                return v["id"]
-        raise HTTPException(409, detail={"mensaje": "No se encontró el talle creado.", "conflictos": []})
+    # -- Modelos de la tienda --
 
-    # -- Modelos nuevos --
+    @router.get("/tienda/nuevos")
+    def tienda_nuevos(usuario: str = Depends(usuario_actual)) -> dict:
+        """Los modelos de la tienda que todavía no están en el mayorista."""
+        productos = _productos_de_la_tienda()
+        incluidos = almacen_.incluidos()
+        nuevos = []
+        for p in productos:
+            if p["id"] in incluidos or not es_elegible(p):
+                continue
+            talles = [{"talle": t, "stock": n} for _, t, n in filas_de_producto(p, True)]
+            nuevos.append({"id": p["id"], "nombre": _nombre_de(p, p["id"]), "foto": True, "talles": talles, "unidades": sum(t["stock"] for t in talles)})
+        nuevos.sort(key=lambda n: n["nombre"].lower())
+        return {"nuevos": nuevos, "incluidos": len(incluidos), "vacio": not incluidos}
 
-    @router.post("/productos")
-    def nuevo_modelo(datos: NuevoModelo, usuario: str = Depends(usuario_actual)) -> dict:
-        talles = {}
-        for talle, cantidad in datos.talles.items():
-            talle = " ".join(talle.split())
-            if not talle or len(talle) > 40:
-                raise HTTPException(422, "Hay un talle con nombre inválido.")
-            if not 0 <= cantidad <= MAXIMO_DE_STOCK:
-                raise HTTPException(422, f"El stock de {talle} tiene que estar entre 0 y {MAXIMO_DE_STOCK}.")
-            talles[talle] = cantidad
-        if not talles:
-            raise HTTPException(422, "Cargá al menos un talle.")
-        fotos = [decodificar_foto(f) for f in datos.fotos]
-
+    @router.post("/tienda/incluir")
+    def tienda_incluir(datos: Incluir, usuario: str = Depends(usuario_actual)) -> dict:
         try:
-            creado = tn.crear_producto(
-                nombre=" ".join(datos.nombre.split()),
-                precio=f"{datos.precio:.2f}",
-                talles=talles,
-                categorias_ids=datos.categorias,
-                fotos=fotos,
-                publicado=datos.publicado,
-            )
+            p = tn.productos_por_id([datos.producto]).get(datos.producto)
         except tn.ErrorDeTiendanube as e:
             raise HTTPException(502, str(e)) from None
-
-        historial.anotar(
-            hist.lote_nuevo(),
-            usuario,
-            [{"accion": "producto_nuevo", "producto_id": creado["id"], "producto": datos.nombre, "talle": ", ".join(f"{t} x{n}" for t, n in talles.items()), "antes": None, "despues": sum(talles.values())}],
-        )
+        if p is None or not es_elegible(p):
+            raise HTTPException(422, "Ese modelo no se puede incluir: tiene que estar publicado y con foto.")
+        if datos.producto in almacen_.incluidos():
+            raise HTTPException(409, "Ese modelo ya está en el mayorista.")
+        filas = filas_de_producto(p, datos.copiar_stock)
+        almacen_.cargar(filas)
+        modelo = _nombre_de(p, p["id"])
+        nombres[p["id"]] = modelo
+        anotar(hist.lote_nuevo(), usuario, [{"accion": "incluido", "producto_id": p["id"], "producto": modelo, "talle": ", ".join(t for _, t, _ in filas), "antes": None, "despues": sum(n for _, _, n in filas)}])
         invalidar_cache()
-        return {"id": creado["id"], "nombre": datos.nombre, "publicado": datos.publicado}
+        return {"incluido": True, "talles": len(filas), "nombre": modelo}
+
+    @router.post("/tienda/cargar-stock")
+    def tienda_cargar_stock(usuario: str = Depends(usuario_actual)) -> dict:
+        """La primera vez: copia a la base propia todo lo que hay en la tienda, con su stock."""
+        if not almacen_.vacio():
+            raise HTTPException(409, "El mayorista ya tiene stock cargado: esto es solo para la primera vez.")
+        filas = filas_iniciales(_productos_de_la_tienda())
+        if not filas:
+            raise HTTPException(422, "No hay modelos publicados con foto y stock en la tienda.")
+        n = almacen_.cargar(filas)
+        anotar(hist.lote_nuevo(), usuario, [{"accion": "carga_inicial", "producto_id": 0, "producto": "Carga inicial desde la tienda", "talle": f"{len({f[0] for f in filas})} modelos", "antes": None, "despues": sum(f[2] for f in filas)}])
+        invalidar_cache()
+        return {"talles": n, "modelos": len({f[0] for f in filas})}
+
+    # -- Pedidos --
+
+    def _vista_de_pedido(p: dict, stock_actual: dict[tuple[int, str], int]) -> dict:
+        datos = p["datos"]
+        items = [
+            {"producto": i["producto"], "nombre": i.get("nombre") or nombre(i["producto"]), "talle": i["talle"], "cantidad": i["cantidad"],
+             "hay": stock_actual.get((i["producto"], almacen.normalizar(i["talle"])), 0)}
+            for i in datos["items"]
+        ]
+        # Lo mismo que hace confirmar: junta las líneas repetidas antes de comparar.
+        pedido_por_talle: dict[tuple[int, str], int] = {}
+        for i in items:
+            k = (i["producto"], almacen.normalizar(i["talle"]))
+            pedido_por_talle[k] = pedido_por_talle.get(k, 0) + i["cantidad"]
+        falta = p["estado"] == "nuevo" and any(stock_actual.get(k, 0) < n for k, n in pedido_por_talle.items())
+        return {
+            "codigo": p["codigo"], "fecha": p["fecha"], "estado": p["estado"], "unidades": p["unidades"], "total": p["total"],
+            "nombre": datos.get("nombre", ""), "negocio": datos.get("negocio", ""), "notas": datos.get("notas", ""),
+            "items": items, "falta": falta,
+        }
+
+    @router.get("/pedidos")
+    def pedidos(estado: str = "nuevo", usuario: str = Depends(usuario_actual)) -> dict:
+        if estado != "todos" and estado not in almacen.ESTADOS:
+            raise HTTPException(422, "Estado desconocido.")
+        lista = almacen_.pedidos(None if estado == "todos" else estado)
+        productos = {i["producto"] for p in lista for i in p["datos"]["items"]}
+        stock_actual = {(f["producto_id"], almacen.normalizar(f["talle"])): f["cantidad"] for f in almacen_.filas(productos)} if productos else {}
+        # Los nombres que guardó la web sirven para el historial aunque la planilla no se haya abierto.
+        for p in lista:
+            for i in p["datos"]["items"]:
+                nombres.setdefault(i["producto"], i.get("nombre") or "")
+        return {"pedidos": [_vista_de_pedido(p, stock_actual) for p in lista], "cuenta": almacen_.cuenta_por_estado()}
+
+    def _movimientos(codigo: str, accion: str, movs: list[dict]) -> list[dict]:
+        pedido = almacen_.pedido(codigo)
+        por_producto = {i["producto"]: i.get("nombre") for i in (pedido or {}).get("datos", {}).get("items", [])}
+        return [
+            {"accion": accion, "producto_id": m["producto_id"], "variante_id": m["id"], "producto": f"Pedido {codigo} · {por_producto.get(m['producto_id']) or nombre(m['producto_id'])}",
+             "talle": m["talle"], "antes": m["antes"], "despues": m["despues"]}
+            for m in movs
+        ]
+
+    def _error_de_pedido(e: almacen.ErrorDeAlmacen) -> HTTPException:
+        if isinstance(e, almacen.PedidoNoExiste):
+            return HTTPException(404, str(e))
+        if isinstance(e, almacen.FaltaStock):
+            conflictos = [{"modelo": nombre(f["producto"]), "talle": f["talle"], "motivo": f"Pidió {f['pidio']} y hay {f['hay']}."} for f in e.faltantes]
+            return HTTPException(409, detail={"mensaje": "No alcanza el stock para confirmar este pedido. No se descontó nada.", "conflictos": conflictos})
+        return HTTPException(409, detail={"mensaje": str(e), "conflictos": []})
+
+    @router.post("/pedidos/{codigo}/confirmar")
+    def pedido_confirmar(codigo: str, usuario: str = Depends(usuario_actual)) -> dict:
+        try:
+            movs = almacen_.confirmar(codigo)
+        except almacen.ErrorDeAlmacen as e:
+            raise _error_de_pedido(e) from None
+        anotar(hist.lote_nuevo(), usuario, _movimientos(codigo, "pedido", movs))
+        return {"codigo": codigo, "estado": "confirmado", "unidades": sum(m["antes"] - m["despues"] for m in movs)}
+
+    @router.post("/pedidos/{codigo}/cancelar")
+    def pedido_cancelar(codigo: str, usuario: str = Depends(usuario_actual)) -> dict:
+        try:
+            anterior, movs = almacen_.cancelar(codigo)
+        except almacen.ErrorDeAlmacen as e:
+            raise _error_de_pedido(e) from None
+        if movs:
+            anotar(hist.lote_nuevo(), usuario, _movimientos(codigo, "pedido_cancelado", movs))
+        return {"codigo": codigo, "estado": "cancelado", "devuelto": anterior == "confirmado"}
+
+    @router.post("/pedidos/{codigo}/despachar")
+    def pedido_despachar(codigo: str, usuario: str = Depends(usuario_actual)) -> dict:
+        try:
+            almacen_.despachar(codigo)
+        except almacen.ErrorDeAlmacen as e:
+            raise _error_de_pedido(e) from None
+        return {"codigo": codigo, "estado": "despachado"}
 
     return router

@@ -440,11 +440,35 @@ $("tGuardar").addEventListener("click", () => {
   cerrarTodo(); actualizar();
 });
 
+/* El pedido lleva un código (A-7K3QX): viaja en el mensaje de WhatsApp y se guarda en el servidor,
+   así el equipo sabe de qué pedido se habla. Cambia solo si cambia el pedido. */
+const ALFABETO = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+let codigoPedido = { firma: "", codigo: "" };
+function nuevoCodigo() {
+  const b = new Uint8Array(5);
+  if (window.crypto && crypto.getRandomValues) crypto.getRandomValues(b); else for (let i = 0; i < 5; i++) b[i] = Math.floor(Math.random() * 256);
+  return "A-" + [...b].map((x) => ALFABETO[x % 32]).join("");
+}
+function codigoActual() {
+  const d = datos(), firma = JSON.stringify([pedido, d.nombre, d.negocio, d.notas]);
+  if (codigoPedido.firma !== firma) codigoPedido = { firma, codigo: nuevoCodigo() };
+  return codigoPedido.codigo;
+}
+/* Si el servidor no contesta, el pedido sale igual por WhatsApp: esto no lo frena. */
+function registrarPedido() {
+  const d = datos(), items = [];
+  for (const [id, talles] of Object.entries(pedido)) for (const [talle, n] of Object.entries(talles)) if (n > 0) items.push({ producto: Number(id), talle, cantidad: n });
+  try {
+    fetch("/api/pedido", { method: "POST", headers: { "Content-Type": "application/json" }, keepalive: true,
+      body: JSON.stringify({ codigo: codigoActual(), items, nombre: d.nombre.slice(0, 80), negocio: d.negocio.slice(0, 120), notas: d.notas.slice(0, 600) }) }).catch(() => {});
+  } catch (e) {}
+}
+
 /* pedido */
 function mensaje() {
   const d = datos(); const n = total(); const pu = precioUnidad(n);
   const lineas = Object.keys(pedido).map((id, i) => { const p = porId.get(Number(id)); const e = etiquetaCorta(p); return `${i + 1}) ${p.nombre}${e ? ` (${e})` : ""}\n   ${detalleTalles(pedido[id])}`; });
-  return [`*PEDIDO MAYORISTA${CFG.marca ? " - " + CFG.marca : ""}*`, d.nombre && `Nombre: ${d.nombre}`, d.negocio && `Negocio / ciudad: ${d.negocio}`, "", ...lineas, "",
+  return [`*PEDIDO MAYORISTA${CFG.marca ? " - " + CFG.marca : ""}*`, `Pedido: ${codigoActual()}`, d.nombre && `Nombre: ${d.nombre}`, d.negocio && `Negocio / ciudad: ${d.negocio}`, "", ...lineas, "",
     `Total: ${n} ${n === 1 ? "camiseta" : "camisetas"}`, pu && `Precio por unidad: ${peso(pu)}`, pu && `Total: ${peso(pu * n)}`, d.notas ? `\nNotas: ${d.notas}` : false, "", CONDICIONES || false].filter((x) => x === "" || Boolean(x)).join("\n");
 }
 /* Las condiciones empiezan con "Condiciones: ..."; en la nota va solo el texto, con mayúscula. */
@@ -487,9 +511,9 @@ $("hojaPedido").addEventListener("click", (e) => {
   const q = e.target.closest("[data-quitar]"); const ed = e.target.closest("[data-editar]");
   if (q) { delete pedido[q.dataset.quitar]; actualizar(); pintarPedido(); }
   if (ed) { cerrarTodo(); abrirTalles(Number(ed.dataset.editar)); }
-  const wa = e.target.closest("#enviarWA"); if (wa && total() < CFG.minimo) e.preventDefault();
+  const wa = e.target.closest("#enviarWA"); if (wa && total() < CFG.minimo) e.preventDefault(); else if (wa) registrarPedido();
   if (e.target.closest("#copiar")) {
-    const nota = $("notaCopia");
+    const nota = $("notaCopia"); registrarPedido();
     try { navigator.clipboard.writeText(mensaje()).then(() => { nota.textContent = "Pedido copiado. Pegalo en el WhatsApp."; }, () => { nota.textContent = "No se pudo copiar. Usá el botón de WhatsApp."; }); }
     catch (err) { nota.textContent = "No se pudo copiar. Usá el botón de WhatsApp."; }
   }

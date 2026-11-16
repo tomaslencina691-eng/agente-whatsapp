@@ -14,6 +14,7 @@ que corre en producción. Los secretos no están acá: viven en las variables de
 
 ## Qué se configura acá y qué no
 
+- El stock del mayorista es propio (no el de la tienda): se carga en `app.mayoristasf.digital/admin`. De la tienda solo se traen los modelos nuevos.
 - `mayorista/negocio.json`: marca, pedido mínimo, precios por cantidad, categorías y condiciones.
   Los precios están vacíos a propósito hasta que el negocio los confirme: sin precios, la web
   dice que el precio lo confirma una persona del equipo.
