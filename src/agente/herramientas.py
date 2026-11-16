@@ -477,6 +477,10 @@ def _stock_mayorista() -> dict[int, dict[str, int]] | None:
     """{modelo: {talle: cantidad}} del mayorista, o None si no hay base (desarrollo)."""
     dsn = os.getenv("POSTGRES_DSN", "").strip()
     if not dsn:
+        if os.getenv("MODO", "").strip().lower() == "produccion":
+            # En producción el stock es solo el del mayorista: si no hay base, no se cae
+            # al de la tienda online (que no es el que se vende), se avisa del problema.
+            raise RuntimeError("falta POSTGRES_DSN: no se puede leer el stock del mayorista")
         return None
     import psycopg
 

@@ -280,3 +280,11 @@ def test_el_catalogo_se_trae_completo_aunque_pase_de_una_pagina(monkeypatch):
     monkeypatch.setattr(herramientas, "_tiendanube_pedir", lambda ruta, parametros: paginas.get(parametros["page"], []))
 
     assert len(herramientas._catalogo_completo()) == 230
+
+
+def test_en_produccion_sin_base_no_se_cae_al_stock_de_la_tienda(monkeypatch):
+    monkeypatch.delenv("POSTGRES_DSN", raising=False)
+    monkeypatch.setenv("MODO", "produccion")
+
+    with pytest.raises(RuntimeError, match="POSTGRES_DSN"):
+        herramientas._stock_mayorista()
