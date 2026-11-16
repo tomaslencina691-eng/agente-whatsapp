@@ -242,6 +242,15 @@ def test_la_pagina_y_la_salud_responden(cliente):
     assert "Mayorista" in r.text
 
 
+def test_www_redirige_al_dominio_sin_www(cliente):
+    r = cliente.get("/admin/?x=1", headers={"host": "www.mayoristasf.digital"}, follow_redirects=False)
+    assert r.status_code == 301
+    assert r.headers["location"] == "https://mayoristasf.digital/admin/?x=1"
+    # sin www no redirige, y la salud responde siempre (para el chequeo del servidor)
+    assert cliente.get("/salud", headers={"host": "www.mayoristasf.digital"}).status_code == 200
+    assert cliente.get("/", headers={"host": "mayoristasf.digital"}, follow_redirects=False).status_code == 200
+
+
 def test_la_api_trae_las_condiciones_de_compra(cliente, monkeypatch):
     """Lo pidió el negocio: las condiciones tienen que llegar a la web (salen de negocio.json)."""
     monkeypatch.setattr(servidor, "_traer_productos", lambda: [producto()])

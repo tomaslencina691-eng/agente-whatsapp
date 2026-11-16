@@ -39,7 +39,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -385,7 +385,16 @@ app.include_router(admin.crear_router(_historial, _invalidar_cache, _almacen, CA
 
 @app.middleware("http")
 async def _cabeceras_del_panel(request: Request, llamar):
-    """El panel no se guarda en cachés, no se mete en un marco y no se indexa."""
+    """El panel no se guarda en cachés, no se mete en un marco y no se indexa.
+
+    Y quien entra por www. pasa al dominio sin www, para que haya una sola dirección.
+    """
+    host = request.headers.get("host", "").split(":")[0].lower()
+    if host.startswith("www.") and request.url.path != "/salud":
+        destino = f"https://{host[4:]}{request.url.path}"
+        if request.url.query:
+            destino += f"?{request.url.query}"
+        return RedirectResponse(destino, status_code=301)
     respuesta = await llamar(request)
     if request.url.path.startswith("/admin"):
         respuesta.headers["Cache-Control"] = "no-store"
