@@ -404,7 +404,46 @@ PALABRAS_VACIAS = {
     "estoy",
     "esta",
     "este",
+    # Saludos y relleno de WhatsApp: "Holaaa capo, tenés alguna camiseta de boca
+    # en stock?" tiene que buscar "camiseta boca", no seis palabras de las que
+    # cuatro no matchean nada y bajan el puntaje de todos los Boca.
+    "alguna",
+    "alguno",
+    "algun",
+    "capo",
+    "crack",
+    "hermano",
+    "bro",
+    "che",
+    "buenas",
+    "buenos",
+    "dias",
+    "tardes",
+    "noches",
+    "stock",
+    "disponible",
+    "disponibles",
+    "tienes",
+    "favor",
+    "gracias",
 }
+
+
+# Dicen "es una prenda", no cuál. Hay modelos que llevan la palabra en el nombre
+# y otros que no ("Boca Alternativa 26/27"), así que si la consulta trae algo más
+# específico se la ignora: con "camiseta de boca" seis Boca con stock quedaban
+# afuera de la respuesta y el agente decía que de Boca no quedaba nada.
+PALABRAS_GENERICAS = {"camiseta", "camisetas", "remera", "remeras", "camisa", "casaca", "prenda", "prendas"}
+
+
+def _palabras_de_la_consulta(consulta: str) -> list[str]:
+    """Las palabras que dicen qué se busca: sin signos pegados, saludos ni relleno."""
+    palabras = []
+    for palabra in _normalizar(consulta).split():
+        palabra = palabra.strip(".,;:!?¿¡()\"'*_-")
+        if palabra and palabra not in PALABRAS_VACIAS and not palabra.startswith("hola"):
+            palabras.append(palabra)
+    return [p for p in palabras if p not in PALABRAS_GENERICAS] or palabras
 
 
 def _catalogo_completo() -> list[dict]:
@@ -477,7 +516,8 @@ def _buscar_en_catalogo(consulta: str, maximo: int = 6, stock: dict[int, dict[st
     frecuencia, total = _frecuencia_de_palabras(catalogo)
 
     puntuados = [(_puntaje(consulta, p, frecuencia, total), p) for p in catalogo]
-    puntuados.sort(key=lambda par: (par[0], _tiene_stock(par[1], stock)), reverse=True)
+    # Los puntajes casi iguales cuentan como empate, y el desempate es el stock.
+    puntuados.sort(key=lambda par: (round(par[0], 2), _tiene_stock(par[1], stock)), reverse=True)
 
     return [p for puntaje, p in puntuados if puntaje >= UMBRAL_DE_PARECIDO][:maximo]
 
@@ -531,9 +571,7 @@ def _puntaje(consulta: str, producto: dict, frecuencia: dict[str, int], total: i
     está en medio catálogo.
     """
     palabras_producto = _palabras_del_producto(producto)
-    palabras_consulta = [
-        p for p in _normalizar(consulta).split() if p not in PALABRAS_VACIAS
-    ]
+    palabras_consulta = _palabras_de_la_consulta(consulta)
 
     if not palabras_consulta or not palabras_producto:
         return 0.0

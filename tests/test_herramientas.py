@@ -12,6 +12,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from agente import herramientas  # noqa: E402
@@ -235,6 +237,42 @@ def test_si_la_base_del_mayorista_falla_se_avisa_en_vez_de_inventar_stock(monkey
     texto = herramientas.buscar_producto.invoke({"consulta": "barcelona"})
 
     assert "No se pudo consultar" in texto and "sin base" in texto
+
+
+@pytest.mark.parametrize(
+    "consulta",
+    ["camiseta de boca", "Holaaa capo, tenes alguna camiseta de boca en stock?", "boca"],
+)
+def test_pedir_una_camiseta_de_un_equipo_trae_los_modelos_de_ese_equipo_con_stock(monkeypatch, consulta):
+    """Caso real: con 'camiseta de boca' entraban solo las que llevan 'Camiseta' en el nombre
+    y el agente decía que de Boca no había nada, habiendo cuatro modelos con stock."""
+    monkeypatch.setenv("TIENDANUBE_STORE_ID", "1")
+    monkeypatch.setenv("TIENDANUBE_ACCESS_TOKEN", "x")
+    catalogo = [
+        camiseta(1, "BOCA JUNIORS VERSIÓN JUGADOR 26/27", tags="camiseta"),  # agotada en el mayorista
+        camiseta(2, "Boca Alternativa 26/27"),
+        camiseta(3, "Boca 26/27"),
+        camiseta(4, "Boca 2015"),
+        camiseta(5, "Camiseta PSG"),
+        camiseta(6, "CAMISETA INTER DE MILÁN"),
+        camiseta(7, "Camiseta LIVERPOOL 2025/26"),
+        camiseta(8, "Argentina 1994 - Camiseta Retro"),
+        camiseta(9, "River ORIGINAL"),
+        camiseta(10, "Barcelona 26/27"),
+    ]
+    monkeypatch.setattr(herramientas, "_catalogo_completo", lambda: catalogo)
+    monkeypatch.setattr(herramientas, "_stock_mayorista", lambda: {1: {"M": 0}, 2: {"M": 9}, 3: {"XL": 3}, 4: {"L": 1}, 5: {"M": 4}})
+
+    texto = herramientas.buscar_producto.invoke({"consulta": consulta})
+
+    assert "Boca Alternativa 26/27" in texto and "M (9 u.)" in texto
+    assert "Boca 26/27" in texto and "Boca 2015" in texto
+    assert "PSG" not in texto and "INTER" not in texto
+
+
+def test_con_solo_camiseta_la_busqueda_sigue_funcionando(monkeypatch):
+    assert herramientas._palabras_de_la_consulta("camiseta") == ["camiseta"]
+    assert herramientas._palabras_de_la_consulta("¡Hola! ¿Tenés camisetas de River?") == ["river"]
 
 
 def test_el_catalogo_se_trae_completo_aunque_pase_de_una_pagina(monkeypatch):
