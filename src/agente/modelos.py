@@ -19,6 +19,7 @@ requirements.txt los paquetes que no usás y el agente arranca igual.
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -66,11 +67,18 @@ def crear_modelo(
                 "Falta el paquete de OpenAI: pip install langchain-openai"
             ) from None
 
+        # Cuánto "piensa" el modelo antes de contestar: none, minimal, low, medium o high.
+        # Los gpt-5 piensan en "medium" por defecto y para charlar por WhatsApp eso son
+        # 60 a 100 segundos de silencio por un "hola". Vacío = lo que decida el modelo.
+        esfuerzo = os.getenv("RAZONAMIENTO_OPENAI", "").strip().lower()
+        extra = {"reasoning": {"effort": esfuerzo}} if esfuerzo else {}
+
         return ChatOpenAI(
             model=modelo,
             api_key=api_key,
             max_completion_tokens=max_tokens,
             timeout=120,
+            **extra,
             # Sin esto, OpenAI no informa el consumo de tokens cuando
             # la respuesta llega en vivo.
             stream_usage=True,

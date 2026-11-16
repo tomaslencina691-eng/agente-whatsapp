@@ -48,3 +48,18 @@ def test_limitar_recorta_solo_si_hace_falta(monkeypatch):
     assert m.limitar_max_tokens("claude", "x", "claude-haiku-4-5", 2048) == 2048
     # El proveedor no informa el tope: lo deja
     assert m.limitar_max_tokens("claude", "x", "gpt-5", 999999) == 999999
+
+
+def test_el_razonamiento_de_openai_se_baja_desde_el_entorno(monkeypatch):
+    import pytest
+
+    pytest.importorskip("langchain_openai")
+    from agente import modelos as m
+
+    monkeypatch.setattr(m, "limitar_max_tokens", lambda proveedor, clave, modelo, tope: tope)
+
+    monkeypatch.setenv("RAZONAMIENTO_OPENAI", "Low")
+    assert m.crear_modelo("openai", "x", "gpt-5.4-mini", 1000).reasoning == {"effort": "low"}
+
+    monkeypatch.delenv("RAZONAMIENTO_OPENAI")
+    assert m.crear_modelo("openai", "x", "gpt-5.4-mini", 1000).reasoning is None

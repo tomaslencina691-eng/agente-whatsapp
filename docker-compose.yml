@@ -68,6 +68,7 @@ services:
       PROVEEDOR: ${PROVEEDOR:-openai}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       MODELO_OPENAI: ${MODELO_OPENAI:-gpt-5}
+      RAZONAMIENTO_OPENAI: ${RAZONAMIENTO_OPENAI:-}
       MODO: produccion
       # Postgres está en la misma red: se le habla por el nombre del servicio.
       POSTGRES_DSN: postgresql://${POSTGRES_USER:-agente}:${POSTGRES_PASSWORD}@postgres:5432/agente
