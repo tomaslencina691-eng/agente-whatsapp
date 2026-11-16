@@ -23,8 +23,8 @@
   --negro-3: #1b1b20;
   --linea: #2c2c33;
   --verde: #1fd65f;
-  --verde-suave: rgba(31, 214, 95, .14);
-  --verde-texto: #0a7a33;
+  --verde-suave: color-mix(in srgb, var(--verde) 14%, transparent);
+  --verde-texto: color-mix(in srgb, var(--verde) 48%, #000);
   --blanco: #ffffff;
   --hielo: #f4f4f5;
   --gris: #a1a1aa;
@@ -68,6 +68,7 @@ a { color: inherit; }
 .banda { background: var(--verde); color: var(--negro); }
 .banda .wrap { display: flex; flex-wrap: wrap; gap: 4px 22px; justify-content: center; padding-block: 8px; }
 .banda span { font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.aviso-web { background: #3a2c08; color: #ffd36b; border-bottom: 1px solid #5c4710; text-align: center; padding: 10px max(16px, env(safe-area-inset-left, 0px)); font-weight: 600; font-size: 14px; }
 
 /* header */
 .cab { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 50; background: var(--negro); border-bottom: 1px solid var(--linea); }
@@ -78,15 +79,15 @@ a { color: inherit; }
   display: inline-flex; align-items: center; gap: 10px; background: var(--verde); color: var(--negro);
   border: 0; border-radius: var(--radio); padding: 10px 18px; font-weight: 800; font-size: 14px; min-height: 44px;
 }
-.btn-pedido:hover { background: #3be476; }
+.btn-pedido:hover { filter: brightness(1.1); }
 .btn-pedido .n { background: var(--negro); color: var(--verde); border-radius: 999px; min-width: 24px; height: 24px; display: grid; place-items: center; font-size: 13px; padding: 0 6px; }
 
 /* hero: el círculo de mediocampo y la línea central, apenas insinuados */
 .hero { position: relative; overflow: hidden; border-bottom: 1px solid var(--linea);
-  background: radial-gradient(900px 520px at 12% 110%, rgba(31, 214, 95, .22), transparent 60%), var(--negro); }
+  background: radial-gradient(900px 520px at 12% 110%, color-mix(in srgb, var(--verde) 22%, transparent), transparent 60%), var(--negro); }
 .hero::before { content: ""; position: absolute; width: 640px; height: 640px; border-radius: 50%; right: -120px; top: 50%; transform: translateY(-50%);
-  border: 1px solid rgba(31, 214, 95, .2); pointer-events: none; }
-.hero::after { content: ""; position: absolute; top: 0; bottom: 0; right: 200px; width: 1px; background: rgba(31, 214, 95, .14); pointer-events: none; }
+  border: 1px solid color-mix(in srgb, var(--verde) 20%, transparent); pointer-events: none; }
+.hero::after { content: ""; position: absolute; top: 0; bottom: 0; right: 200px; width: 1px; background: color-mix(in srgb, var(--verde) 14%, transparent); pointer-events: none; }
 .hero .wrap { position: relative; z-index: 1; padding-block: 52px 60px; display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 40px; align-items: center; }
 .hero h1 { font-family: var(--display); font-weight: 800; text-transform: uppercase; font-size: clamp(60px, 11vw, 124px); line-height: .9; letter-spacing: .005em; margin: 16px 0 18px; }
 .hero h1 em { color: var(--verde); font-style: normal; display: block; }
@@ -108,7 +109,7 @@ a { color: inherit; }
 .cartel.mejor { outline: 3px solid var(--verde); }
 .cartel .mejor-tag { position: absolute; top: -13px; right: 18px; background: var(--verde); color: var(--negro); font-size: 11px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; padding: 4px 10px; border-radius: 4px; }
 .minimo { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-top: 14px;
-  border: 1.5px solid rgba(31, 214, 95, .5); border-radius: 18px; padding: 14px 22px; background: rgba(14, 14, 16, .6); }
+  border: 1.5px solid color-mix(in srgb, var(--verde) 50%, transparent); border-radius: 18px; padding: 14px 22px; background: rgba(14, 14, 16, .6); }
 .minimo > span { font-size: 13px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--gris); }
 .minimo b { font-family: var(--display); font-size: 34px; font-weight: 800; text-transform: uppercase; color: var(--verde); line-height: 1; }
 
@@ -188,7 +189,7 @@ a { color: inherit; }
 .paso button:disabled { opacity: .35; cursor: not-allowed; }
 .paso output { min-width: 40px; text-align: center; font-weight: 800; font-size: 18px; font-variant-numeric: tabular-nums; }
 .primario { background: var(--verde); color: var(--negro); border: 0; border-radius: var(--radio); min-height: 50px; padding: 12px 18px; font-weight: 800; font-size: 16px; text-align: center; text-decoration: none; display: flex; align-items: center; justify-content: center; }
-.primario:hover { background: #3be476; }
+.primario:hover { filter: brightness(1.1); }
 .primario[aria-disabled="true"] { background: var(--linea); color: var(--gris); cursor: not-allowed; }
 .secundario { background: transparent; border: 1.5px solid var(--linea); border-radius: var(--radio); min-height: 44px; padding: 8px 16px; font-weight: 700; }
 .secundario:hover { border-color: var(--verde); }
@@ -245,8 +246,9 @@ a { color: inherit; }
 </head>
 <body>
 <div class="banda"><div class="wrap">
-  <span>Solo mayoristas</span><span id="bandaPrecios" style="display:contents"></span><span>El pedido sale por WhatsApp</span>
+  <span id="bandaIzq">Solo mayoristas</span><span id="bandaPrecios" style="display:contents"></span><span id="bandaDer">El pedido sale por WhatsApp</span>
 </div></div>
+<div class="aviso-web" id="avisoWeb" role="status" hidden></div>
 
 <header class="cab"><div class="wrap">
   <img class="logo" id="logo" alt="" width="48" height="48" hidden><strong id="marcaTexto" style="font-size:20px;font-weight:800"></strong>
@@ -258,8 +260,8 @@ a { color: inherit; }
 <section class="hero"><div class="wrap">
   <div>
     <span class="rotulo">Catálogo mayorista</span>
-    <h1>Camisetas <em>por mayor.</em></h1>
-    <p>Camisetas importadas de clubes y selecciones. Elegí los modelos y los talles, armá tu pedido y mandalo por WhatsApp. Lo que ves es lo que llega.</p>
+    <h1 id="titulo">Camisetas <em>por mayor.</em></h1>
+    <p id="bajada">Camisetas importadas de clubes y selecciones. Elegí los modelos y los talles, armá tu pedido y mandalo por WhatsApp. Lo que ves es lo que llega.</p>
     <ol class="pasos">
       <li>1. Elegí modelos</li><li>2. Cargá talles y cantidades</li><li>3. Enviá el pedido por WhatsApp</li>
     </ol>
@@ -296,6 +298,7 @@ a { color: inherit; }
     </ol>
     <p class="aviso">¿Ya sabés exactamente qué querés? Escribinos el pedido (modelo, talle y cantidad) y te lo tomamos igual.</p>
     <p><a class="primario" id="waDirecto" href="#" target="_blank" rel="noopener" style="display:inline-flex;padding-inline:22px">Escribirnos por WhatsApp</a></p>
+    <p class="aviso" id="horarioWeb" hidden></p>
   </div>
 </div></section>
 
@@ -326,7 +329,7 @@ a { color: inherit; }
 
 <script>
 /* La configuración y los productos vienen del servidor (/api/catalogo). */
-let CFG = { tramos: [], minimo: 6, limitarStock: true, whatsapp: "", marca: "", filtroVersion: true };
+let CFG = { tramos: [], minimo: 6, limitarStock: true, mostrarUnidades: true, whatsapp: "", marca: "", filtroVersion: true, mensaje: "", pausa: false };
 let CATS = [["todas", "Todas"]];
 const VERS = [["todas", "Todas"], ["jugador", "Versión jugador"], ["fan", "Versión fan"]];
 let NOMBRE_CAT = {};
@@ -421,7 +424,7 @@ function pintarTalles() {
   const p = porId.get(editando);
   $("tTalles").innerHTML = p.talles.map((t, i) => {
     const n = borrador[t.talle] || 0;
-    return `<div class="talle"><div><b>${esc(t.talle)}</b>${CFG.limitarStock ? `<small>quedan ${t.stock}</small>` : ""}</div><div class="paso">
+    return `<div class="talle"><div><b>${esc(t.talle)}</b>${CFG.mostrarUnidades ? `<small>quedan ${t.stock}</small>` : ""}</div><div class="paso">
     <button type="button" data-i="${i}" data-d="-1" aria-label="Menos ${esc(t.talle)}">−</button><output aria-live="polite">${n}</output>
     <button type="button" data-i="${i}" data-d="1" aria-label="Más ${esc(t.talle)}" ${n >= maximoDe(t) ? "disabled" : ""}>+</button></div></div>`;
   }).join("");
@@ -465,11 +468,17 @@ function registrarPedido() {
 }
 
 /* pedido */
+/* La plantilla del mensaje se edita en el panel. Una línea con datos que quedaron vacíos (el nombre,
+   las notas, el precio si está oculto) no se manda. */
+function renderMensaje(plantilla, v) {
+  const lineas = plantilla.split("\n").filter((l) => { const ph = l.match(/\{[a-z]+\}/g); return !ph || ph.some((p) => String(v[p.slice(1, -1)] == null ? "" : v[p.slice(1, -1)]).trim() !== ""); });
+  return lineas.map((l) => l.replace(/\{([a-z]+)\}/g, (_, k) => (v[k] == null ? "" : v[k]))).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
 function mensaje() {
   const d = datos(); const n = total(); const pu = precioUnidad(n);
   const lineas = Object.keys(pedido).map((id, i) => { const p = porId.get(Number(id)); const e = etiquetaCorta(p); return `${i + 1}) ${p.nombre}${e ? ` (${e})` : ""}\n   ${detalleTalles(pedido[id])}`; });
-  return [`*PEDIDO MAYORISTA${CFG.marca ? " - " + CFG.marca : ""}*`, `Pedido: ${codigoActual()}`, d.nombre && `Nombre: ${d.nombre}`, d.negocio && `Negocio / ciudad: ${d.negocio}`, "", ...lineas, "",
-    `Total: ${n} ${n === 1 ? "camiseta" : "camisetas"}`, pu && `Precio por unidad: ${peso(pu)}`, pu && `Total: ${peso(pu * n)}`, d.notas ? `\nNotas: ${d.notas}` : false, "", CONDICIONES || false].filter((x) => x === "" || Boolean(x)).join("\n");
+  return renderMensaje(CFG.mensaje, { marca: CFG.marca, codigo: codigoActual(), nombre: d.nombre, negocio: d.negocio, pedido: lineas.join("\n"),
+    unidades: `${n} ${n === 1 ? "camiseta" : "camisetas"}`, precio: pu ? peso(pu) : "", total: pu ? peso(pu * n) : "", notas: d.notas, condiciones: CONDICIONES });
 }
 /* Las condiciones empiezan con "Condiciones: ..."; en la nota va solo el texto, con mayúscula. */
 const sinTitulo = (t) => { const s = t.replace(/^Condiciones:\s*/i, ""); return s.charAt(0).toUpperCase() + s.slice(1); };
@@ -497,21 +506,21 @@ function pintarPedido() {
     <div class="campo"><label for="fNotas">Notas del pedido (opcional)</label><textarea id="fNotas">${esc(f.notas)}</textarea></div>`;
   $("pPie").innerHTML = `<div class="totales"><div><span>Camisetas</span><b>${n}</b></div>
     ${pu ? `<div><span>Precio por unidad</span><b>${peso(pu)}</b></div><div class="gran"><span>Total</span><span>${peso(pu * n)}</span></div>` : `<div><span>Precio por unidad</span><b>${CFG.tramos.length ? `desde ${minimo} camisetas` : "a confirmar"}</b></div>`}</div>
-    <a class="primario" id="enviarWA" href="#" target="_blank" rel="noopener" aria-disabled="${n < minimo}">${n < minimo ? `Sumá ${minimo - n} más para enviar` : "Enviar pedido por WhatsApp"}</a>
+    <a class="primario" id="enviarWA" href="#" target="_blank" rel="noopener" aria-disabled="${CFG.pausa || n < minimo}">${CFG.pausa ? "Pedidos pausados por ahora" : n < minimo ? `Sumá ${minimo - n} más para enviar` : "Enviar pedido por WhatsApp"}</a>
     <button class="secundario" id="copiar" type="button">Copiar pedido</button>
     <p class="nota" id="notaCopia">Se abre tu WhatsApp con el pedido escrito. ${esc(sinTitulo(CONDICIONES))}</p>`;
   actualizarLink();
 }
 function actualizarLink() {
   const a = $("enviarWA"); if (!a) return;
-  a.href = total() >= CFG.minimo ? `https://wa.me/${CFG.whatsapp}?text=${encodeURIComponent(mensaje())}` : "#";
+  a.href = !CFG.pausa && total() >= CFG.minimo ? `https://wa.me/${CFG.whatsapp}?text=${encodeURIComponent(mensaje())}` : "#";
 }
 $("hojaPedido").addEventListener("input", () => { datosGuardados = datos(); actualizarLink(); guardar(); });
 $("hojaPedido").addEventListener("click", (e) => {
   const q = e.target.closest("[data-quitar]"); const ed = e.target.closest("[data-editar]");
   if (q) { delete pedido[q.dataset.quitar]; actualizar(); pintarPedido(); }
   if (ed) { cerrarTodo(); abrirTalles(Number(ed.dataset.editar)); }
-  const wa = e.target.closest("#enviarWA"); if (wa && total() < CFG.minimo) e.preventDefault(); else if (wa) registrarPedido();
+  const wa = e.target.closest("#enviarWA"); if (wa && (CFG.pausa || total() < CFG.minimo)) e.preventDefault(); else if (wa) registrarPedido();
   if (e.target.closest("#copiar")) {
     const nota = $("notaCopia"); registrarPedido();
     try { navigator.clipboard.writeText(mensaje()).then(() => { nota.textContent = "Pedido copiado. Pegalo en el WhatsApp."; }, () => { nota.textContent = "No se pudo copiar. Usá el botón de WhatsApp."; }); }
@@ -559,11 +568,18 @@ function depurarPedido() {
 /* Lo que cambia de un negocio a otro (marca, precios, categorías, condiciones) viene de negocio.json. */
 function aplicarNegocio(d) {
   const marca = d.marca || "", tr = (d.tramos || []).slice().reverse();
-  document.title = marca ? `${marca} Mayorista` : "Mayorista";
+  document.title = d.seoTitulo || (marca ? `${marca} Mayorista` : "Mayorista");
   $("marcaTexto").textContent = marca;
+  if (d.color && /^#[0-9a-fA-F]{6}$/.test(d.color)) document.documentElement.style.setProperty("--verde", d.color);
+  $("bandaIzq").textContent = d.bandaIzq || ""; $("bandaDer").textContent = d.bandaDer || "";
+  const partes = (d.titulo || "").trim().split(/\s+/).filter(Boolean), nEm = partes.length >= 3 ? 2 : 1;
+  if (partes.length) $("titulo").innerHTML = `${esc(partes.slice(0, -nEm).join(" "))}${partes.length > nEm ? " " : ""}<em>${esc(partes.slice(-nEm).join(" "))}</em>`;
+  $("bajada").textContent = d.bajada || ""; $("bajada").hidden = !d.bajada;
+  $("avisoWeb").textContent = d.aviso || ""; $("avisoWeb").hidden = !d.aviso;
+  $("horarioWeb").textContent = d.horario ? `Atención: ${d.horario}` : ""; $("horarioWeb").hidden = !d.horario;
   const logo = $("logo"), prueba = new Image();
   prueba.onload = () => { logo.src = prueba.src; logo.alt = marca; logo.hidden = false; $("marcaTexto").hidden = true; };
-  prueba.src = "logo.webp";
+  prueba.src = d.logo || "logo.webp";
   $("bandaPrecios").innerHTML = tr.map((t) => `<span>${t.desde} o más: ${peso(t.precio)} c/u</span>`).join("");
   $("carteles").hidden = !tr.length;
   $("carteles").innerHTML = tr.map((t, i) => { const mejor = tr.length > 1 && i === tr.length - 1;
@@ -575,7 +591,8 @@ function aplicarNegocio(d) {
   $("cierrePedido").textContent = d.cierre || ""; $("cierrePedido").hidden = !d.cierre;
   $("pie").textContent = d.pie || "";
   let host = ""; try { host = new URL(d.tiendaUrl).host.replace(/^www\./, ""); } catch (e) {}
-  $("pieMarca").innerHTML = `${esc(marca)} Mayorista.` + (host ? ` ¿Comprás para vos? <a href="${esc(d.tiendaUrl)}" target="_blank" rel="noopener">${esc(host)}</a>` : "");
+  $("pieMarca").innerHTML = `${esc(marca)} Mayorista.` + (host ? ` ¿Comprás para vos? <a href="${esc(d.tiendaUrl)}" target="_blank" rel="noopener">${esc(host)}</a>` : "")
+    + (/^https?:\/\//i.test(d.instagram || "") ? ` · <a href="${esc(d.instagram)}" target="_blank" rel="noopener">Instagram</a>` : "");
   CATS = [["todas", "Todas"], ...(d.categorias || []).map((c) => [c.id, c.nombre])];
   NOMBRE_CAT = Object.fromEntries((d.categorias || []).map((c) => [c.id, c.nombre]));
   CONDICIONES = d.condiciones || "";
@@ -587,7 +604,7 @@ async function cargar() {
     const r = await fetch("/api/catalogo", { cache: "no-store" });
     if (!r.ok) throw new Error(r.status);
     const d = await r.json();
-    CFG = { tramos: d.tramos, minimo: d.minimo, limitarStock: d.limitarStock, whatsapp: d.whatsapp, marca: d.marca || "", filtroVersion: d.filtroVersion !== false };
+    CFG = { tramos: d.tramos, minimo: d.minimo, limitarStock: d.limitarStock, mostrarUnidades: d.mostrarUnidades !== false, whatsapp: d.whatsapp, marca: d.marca || "", filtroVersion: d.filtroVersion !== false, mensaje: d.mensaje || "{pedido}", pausa: !!d.pausa };
     aplicarNegocio(d);
     PRODUCTOS = d.productos; porId = new Map(PRODUCTOS.map((p) => [p.id, p]));
     $("waDirecto").href = `https://wa.me/${CFG.whatsapp}`;

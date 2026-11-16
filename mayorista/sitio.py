@@ -10,7 +10,10 @@ cada pocos minutos, el nombre, las fotos y las categorías de cada modelo.
 Qué hace este servidor, en cuatro cosas:
 
   · GET  /api/catalogo  los modelos publicados que están en el mayorista y
-                        tienen stock, con sus talles y cuántas unidades quedan.
+                        tienen stock, con sus talles y cuántas unidades quedan, y
+                        los ajustes de la web (textos, precios, color, número...).
+                        Se editan desde el panel; lo que no se tocó viene de
+                        negocio.json (ver ajustes.py).
   · POST /api/pedido    guarda el pedido que armó la persona, con un código que
                         viaja en el mensaje de WhatsApp. El stock NO se descuenta
                         acá: se descuenta cuando el equipo confirma el pedido
@@ -23,6 +26,8 @@ Qué hace este servidor, en cuatro cosas:
 
 from __future__ import annotations
 
+import base64
+import html
 import json
 import logging
 import os
@@ -33,10 +38,12 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import admin
+import ajustes
 import almacen
 import historial as hist
 import tn
@@ -140,6 +147,33 @@ def categorias_vigentes() -> list[dict]:
 def categorias_de(producto: dict) -> list[str]:
     """Los ids de categoría del negocio a los que pertenece."""
     return admin.categorias_del_producto(producto, categorias_vigentes())
+
+
+_web_cache: dict = {"t": 0.0, "valor": None}
+
+
+def _ajustes_de_siempre() -> dict:
+    return ajustes.por_defecto(NEGOCIO, MARCA, WHATSAPP, TIENDA_URL, LIMITAR_STOCK, MINIMO, TRAMOS)
+
+
+def web_vigente() -> dict:
+    """Los ajustes de la web: los de negocio.json y del entorno, con lo guardado desde el panel encima.
+
+    Se guardan 15 segundos para no ir a la base en cada visita.
+    """
+    base = _ajustes_de_siempre()
+    if _almacen is None:
+        return base
+    if _web_cache["valor"] is not None and time.time() - _web_cache["t"] < 15:
+        return _web_cache["valor"]
+    try:
+        guardados = _almacen.config("web")
+    except Exception:  # noqa: BLE001
+        log.warning("No se pudieron leer los ajustes de la web: se usan los últimos conocidos.")
+        return _web_cache["valor"] if _web_cache["valor"] is not None else base
+    valor = ajustes.combinar(base, guardados)
+    _web_cache.update(t=time.time(), valor=valor)
+    return valor
 
 
 def version_de(nombre: str) -> str:
@@ -250,12 +284,21 @@ def _catalogo_actual() -> list[dict]:
     """El catálogo de ahora: nombres y fotos de la caché, stock fresco de la base."""
     _actualizar_si_hace_falta()
     stock = stock_por_modelo(_almacen.filas()) if _almacen is not None else None
-    return armar_catalogo(_cache["productos"], stock)[0]
+    catalogo = armar_catalogo(_cache["productos"], stock)[0]
+    orden = web_vigente()["orden"]
+    if orden == "stock":
+        catalogo.sort(key=lambda p: -sum(t["stock"] for t in p["talles"]))
+    elif orden == "nombre":
+        catalogo.sort(key=lambda p: p["nombre"].lower())
+    else:  # novedades: los ids de la tienda crecen con el tiempo
+        catalogo.sort(key=lambda p: -p["id"])
+    return catalogo
 
 
 def precio_unidad(unidades: int) -> int | None:
     """El precio por unidad que corresponde a un pedido de tantas camisetas."""
-    return next((t["precio"] for t in TRAMOS if unidades >= t["desde"]), None)
+    tramos = sorted(web_vigente()["tramos"], key=lambda t: t["desde"], reverse=True)
+    return next((t["precio"] for t in tramos if unidades >= t["desde"]), None)
 
 
 # -- La app -------------------------------------------------------------------
@@ -269,6 +312,8 @@ def _invalidar_cache() -> None:
     _cache["t"] = 0.0
     _categorias_cache["t"] = 0.0
     _categorias_cache["valor"] = None
+    _web_cache["t"] = 0.0
+    _web_cache["valor"] = None
 
 
 def _cargar_stock_inicial() -> None:
@@ -296,7 +341,7 @@ async def _vida(_app: FastAPI):
 
 
 app = FastAPI(title="Mayorista", docs_url=None, redoc_url=None, lifespan=_vida)
-app.include_router(admin.crear_router(_historial, _invalidar_cache, _almacen, CATEGORIAS))
+app.include_router(admin.crear_router(_historial, _invalidar_cache, _almacen, CATEGORIAS, _ajustes_de_siempre))
 
 
 @app.middleware("http")
@@ -324,29 +369,44 @@ def api_catalogo(response: Response) -> dict:
         log.exception("No se pudo armar el catálogo")
         raise HTTPException(503, "No pudimos cargar el catálogo. Probá de nuevo en un minuto.") from None
     response.headers["Cache-Control"] = "no-store"
+    w = web_vigente()
     return {
         "productos": catalogo,
-        "tramos": TRAMOS,
-        "minimo": MINIMO,
-        "limitarStock": LIMITAR_STOCK,
-        "whatsapp": WHATSAPP,
-        "marca": MARCA,
-        "tiendaUrl": TIENDA_URL,
+        # Con los precios ocultos no se mandan: la web pide que los confirme una persona.
+        "tramos": [] if w["ocultarPrecios"] else sorted(w["tramos"], key=lambda t: t["desde"], reverse=True),
+        "minimo": w["minimo"],
+        "limitarStock": w["limitarStock"],
+        "mostrarUnidades": w["mostrarUnidades"],
+        "whatsapp": w["whatsapp"],
+        "marca": w["marca"],
+        "tiendaUrl": w["tiendaUrl"] if w["tiendaUrl"].lower().startswith(("http://", "https://")) else "",
         "categorias": [{"id": c["id"], "nombre": c["nombre"]} for c in categorias_vigentes()],
         # False: la web no muestra el filtro "Versión jugador / fan" (se deduce del
         # nombre) y usa solo las categorías de la tienda.
-        "filtroVersion": NEGOCIO.get("filtroVersion", True) is not False,
-        "reglas": NEGOCIO.get("reglas") or [],
-        "condiciones": NEGOCIO.get("condiciones") or "",
-        "cierre": NEGOCIO.get("cierre") or "",
-        "pie": NEGOCIO.get("pie") or "",
+        "filtroVersion": w["filtroVersion"],
+        "reglas": w["reglas"],
+        "condiciones": w["condiciones"],
+        "cierre": w["cierre"],
+        "pie": w["pie"],
+        "bandaIzq": w["bandaIzq"],
+        "bandaDer": w["bandaDer"],
+        "titulo": w["titulo"],
+        "bajada": w["bajada"],
+        "color": w["color"],
+        "mensaje": w["mensaje"],
+        "pausa": w["pausa"],
+        "aviso": w["aviso"],
+        "horario": w["horario"],
+        "instagram": w["instagram"],
+        "seoTitulo": w["seoTitulo"],
+        "logo": "logo.webp" + (f"?v={w['logoHash']}" if w["logoHash"] else ""),
     }
 
 
 @app.get("/api/marca")
 def api_marca() -> dict:
     """Solo el nombre: lo usa el panel de administración."""
-    return {"marca": MARCA}
+    return {"marca": web_vigente()["marca"]}
 
 
 # -- Pedidos ------------------------------------------------------------------
@@ -390,6 +450,8 @@ def api_pedido(datos: PedidoNuevo, request: Request) -> dict:
     """Guarda el pedido. La web lo manda justo antes de abrir WhatsApp; si falla, el pedido sale igual."""
     if _almacen is None:
         raise HTTPException(503, "Los pedidos no se están guardando en este servidor.")
+    if web_vigente()["pausa"]:
+        raise HTTPException(409, "Los pedidos están en pausa por ahora.")
     if _demasiados_pedidos(_ip_de(request)):
         raise HTTPException(429, "Demasiados pedidos seguidos. Probá de nuevo más tarde.")
 
@@ -428,7 +490,32 @@ def imagen(producto: int, n: int) -> Response:
     return Response(contenido, media_type="image/webp", headers={"Cache-Control": "public, max-age=86400"})
 
 
-# La página y el logo, al final: lo de arriba tiene prioridad sobre los archivos.
+@app.get("/logo.webp")
+def logo() -> Response:
+    """El logo que se subió desde el panel o, si no hay, el de la carpeta static."""
+    try:
+        guardado = _almacen.config("logo") if _almacen is not None else None
+    except Exception:  # noqa: BLE001
+        guardado = None
+    if guardado and guardado.get("datos"):
+        return Response(base64.b64decode(guardado["datos"]), media_type=guardado.get("tipo") or "image/png", headers={"Cache-Control": "public, max-age=300"})
+    return FileResponse(CARPETA / "static" / "logo.webp", headers={"Cache-Control": "public, max-age=300"})
+
+
+@app.get("/", include_in_schema=False)
+@app.get("/index.html", include_in_schema=False)
+def pagina() -> HTMLResponse:
+    """La página, con el título y la descripción que se eligieron en el panel (los buscadores no corren el JavaScript)."""
+    texto = (CARPETA / "static" / "index.html").read_text(encoding="utf-8")
+    w = web_vigente()
+    if w["seoTitulo"].strip():
+        texto = re.sub(r"<title>.*?</title>", lambda _: f"<title>{html.escape(w['seoTitulo'].strip())}</title>", texto, count=1, flags=re.S)
+    if w["seoDescripcion"].strip():
+        texto = re.sub(r'(<meta name="description" content=")[^"]*(")', lambda m: m.group(1) + html.escape(w["seoDescripcion"].strip(), quote=True) + m.group(2), texto, count=1)
+    return HTMLResponse(texto, headers={"Cache-Control": "no-cache"})
+
+
+# El resto de los archivos, al final: lo de arriba tiene prioridad.
 app.mount("/", StaticFiles(directory=CARPETA / "static", html=True), name="web")
 
 

@@ -49,6 +49,53 @@ button { cursor: pointer; }
 .btn.chico { min-height: 32px; padding: 4px 10px; font-size: 13px; }
 a.btn { color: inherit; text-decoration: none; }
 
+/* web mayorista: formulario y vista previa */
+.web-grid { display: grid; gap: 18px; grid-template-columns: minmax(0, 1fr) minmax(280px, 360px); align-items: start; padding-bottom: 80px; }
+.web-grid .panel { max-width: none; }
+.previa-web { position: sticky; top: 70px; display: grid; gap: 10px; }
+@media (max-width: 1050px) { .web-grid { grid-template-columns: minmax(0, 1fr); } .previa-web { position: static; } }
+details.bloque { border-top: 1px solid var(--linea); padding: 14px 0; }
+details.bloque summary { cursor: pointer; font-family: var(--display); text-transform: uppercase; font-size: 22px; font-weight: 800; }
+details.bloque .cuerpo { display: grid; gap: 14px; padding-top: 14px; }
+.dos { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.opcion { display: flex; gap: 10px; align-items: flex-start; }
+.opcion input { margin-top: 4px; width: 18px; height: 18px; accent-color: var(--mostaza); flex: none; }
+.opcion small { display: block; color: var(--suave); }
+.fila-edit { display: grid; gap: 8px; background: var(--noche-2); border: 1px solid var(--linea); border-radius: 12px; padding: 12px; }
+.fila-edit .dos { align-items: end; }
+.colores { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.colores button { width: 32px; height: 32px; border-radius: 50%; border: 2px solid var(--linea); padding: 0; }
+.colores button[aria-pressed="true"] { outline: 2px solid var(--texto); outline-offset: 2px; }
+.colores input[type="color"] { width: 44px; height: 34px; padding: 2px; background: var(--noche); border: 1.5px solid var(--linea); border-radius: 8px; }
+.logo-edit { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.logo-edit img { width: 64px; height: 64px; border-radius: 50%; object-fit: cover; background: #2b2b2b; border: 1px solid var(--linea); }
+.chips-datos { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips-datos button { font: 600 12px ui-monospace, Menlo, Consolas, monospace; background: var(--noche); border: 1px solid var(--linea); border-radius: 6px; padding: 4px 8px; color: var(--mostaza-claro); }
+.burbuja { background: #0b3d1d; color: #e9fbe9; border-radius: 12px 12px 12px 3px; padding: 10px 12px; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.barra-web { position: sticky; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); z-index: 20; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; justify-content: space-between; background: var(--tarjeta); border: 1px solid var(--mostaza); border-radius: 12px; padding: 12px 16px; box-shadow: 0 10px 30px rgba(0, 0, 0, .45); }
+.mini { --macc: #1fd65f; background: #0e0e10; border: 1px solid var(--linea); border-radius: 12px; overflow: hidden; font-size: 12px; color: #f4f4f5; }
+.mini .banda { background: var(--macc); color: #0e0e10; text-align: center; font-size: 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; padding: 5px 8px; }
+.mini .aviso { background: #3a2c08; color: #ffd36b; padding: 7px 12px; font-weight: 600; text-align: center; }
+.mini .cab { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid #2c2c33; }
+.mini .cab img { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; background: #2b2b2b; }
+.mini .cab b { font: 800 16px/1 var(--display); text-transform: uppercase; }
+.mini .cab .rot { margin-left: auto; border: 1px solid var(--macc); color: var(--macc); border-radius: 4px; padding: 2px 7px; font-size: 9.5px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+.mini .hero { padding: 22px 16px 18px; background: radial-gradient(260px 160px at 0% 110%, color-mix(in srgb, var(--macc) 28%, transparent), transparent 70%), #0e0e10; }
+.mini .hero h4 { margin: 0 0 8px; font: 800 44px/.9 var(--display); text-transform: uppercase; overflow-wrap: anywhere; }
+.mini .hero h4 em { color: var(--macc); font-style: normal; }
+.mini .hero p { color: #a1a1aa; margin: 0 0 14px; font-size: 12.5px; }
+.mini .cartel { background: #fff; color: #0e0e10; border-radius: 12px; padding: 8px 14px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+.mini .cartel .de { font-size: 10.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.mini .cartel .de b { font: 800 26px/1 var(--display); margin-right: 4px; }
+.mini .cartel .mo { font: 800 26px/1 var(--display); }
+.mini .minimo { border: 1px solid color-mix(in srgb, var(--macc) 55%, transparent); border-radius: 12px; padding: 8px 14px; display: flex; justify-content: space-between; align-items: baseline; }
+.mini .minimo span { font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: #a1a1aa; }
+.mini .minimo b { font: 800 20px/1 var(--display); text-transform: uppercase; color: var(--macc); }
+.mini .pedido { padding: 12px 16px 16px; border-top: 1px solid #2c2c33; display: grid; gap: 6px; background: #1b1b20; }
+.mini .pedido .bt { background: var(--macc); color: #0e0e10; border-radius: 10px; padding: 9px; text-align: center; font-weight: 800; }
+.mini .pedido .bt.pausa { background: #3a3a42; color: #c9c9d1; }
+.mini .pedido small { color: #a1a1aa; text-align: center; overflow-wrap: anywhere; }
+
 /* login */
 .entrada { min-height: 100vh; display: grid; place-items: center; padding: 20px; }
 .tarjeta-login { width: min(380px, 100%); background: var(--tarjeta); border: 1px solid var(--linea); border-radius: 18px; padding: 28px; display: grid; gap: 14px; }
@@ -159,6 +206,7 @@ tr.sin-stock .nombre { color: var(--suave); }
       <button class="pestana" role="tab" aria-selected="true" data-pestana="stock">Stock</button>
       <button class="pestana" role="tab" aria-selected="false" data-pestana="pedidos">Pedidos<span class="contador" id="contadorPedidos" hidden></span></button>
       <button class="pestana" role="tab" aria-selected="false" data-pestana="tienda">Modelos de la tienda<span class="contador" id="contadorTienda" hidden></span></button>
+      <button class="pestana" role="tab" aria-selected="false" data-pestana="web">Web mayorista</button>
       <button class="pestana" role="tab" aria-selected="false" data-pestana="historial">Historial</button>
     </nav>
     <span class="espacio"></span>
@@ -231,6 +279,78 @@ tr.sin-stock .nombre { color: var(--suave); }
       <div class="acciones" style="justify-content:flex-start"><button class="btn chico" id="btnFiltroNuevo" type="button">+ Agregar filtro</button><button class="btn fuerte" id="btnGuardarFiltros" type="button">Guardar filtros</button></div>
       <div class="mensaje" id="msgFiltros" role="status"></div>
     </div>
+  </div></div></section>
+
+  <!-- WEB MAYORISTA -->
+  <section id="pestanaWeb" hidden><div class="wrap"><div class="web-grid">
+    <div class="panel">
+      <h2>Web mayorista</h2>
+      <p class="ayuda">Lo que cambies acá se publica en la web al tocar «Publicar en la web». A la derecha ves cómo queda. El stock y los filtros se manejan en sus pestañas.</p>
+
+      <details class="bloque" open><summary>Marca y portada</summary><div class="cuerpo">
+        <div class="campo"><label for="wMarca">Nombre del negocio</label><input id="wMarca" data-w="marca" maxlength="60"></div>
+        <div class="dos">
+          <div class="campo"><label for="wBandaIzq">Banda de arriba, a la izquierda</label><input id="wBandaIzq" data-w="bandaIzq" maxlength="60"></div>
+          <div class="campo"><label for="wBandaDer">Banda de arriba, a la derecha</label><input id="wBandaDer" data-w="bandaDer" maxlength="60"></div>
+        </div>
+        <div class="campo"><label>Logo</label>
+          <div class="logo-edit"><img id="wLogoVista" alt="" width="64" height="64">
+            <label class="btn chico" for="wLogo" style="cursor:pointer">Subir logo</label><input type="file" id="wLogo" accept="image/png,image/jpeg,image/webp" hidden>
+            <button class="btn chico" id="wLogoQuitar" type="button">Volver al logo de siempre</button></div>
+          <span class="ayuda">Cuadrado, JPG, PNG o WebP. El logo se publica apenas lo subís. El ícono de la pestaña del navegador no cambia.</span></div>
+        <div class="campo"><label>Color principal</label><div class="colores" id="wColores"></div></div>
+        <div class="campo"><label for="wTitulo">Título de la portada</label><input id="wTitulo" data-w="titulo" maxlength="40"></div>
+        <div class="campo"><label for="wBajada">Texto debajo del título</label><textarea id="wBajada" data-w="bajada" rows="2" maxlength="200"></textarea></div>
+      </div></details>
+
+      <details class="bloque" open><summary>Pedidos y precios</summary><div class="cuerpo">
+        <div class="campo"><label for="wWhatsapp">WhatsApp que recibe los pedidos</label><input id="wWhatsapp" data-w="whatsapp" inputmode="numeric" autocomplete="off"><span class="ayuda" id="wWhatsappAyuda"></span></div>
+        <div class="campo"><label for="wMensaje">Mensaje del pedido</label><textarea id="wMensaje" data-w="mensaje" rows="9" maxlength="1500" style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px"></textarea>
+          <span class="ayuda">Tocá un dato para sumarlo. Si una persona no completa un dato, esa línea no se manda. {pedido} es obligatorio.</span>
+          <div class="chips-datos" id="wDatos"></div>
+          <span class="ayuda">Así lo recibe el equipo:</span><div class="burbuja" id="wMensajeVista"></div></div>
+        <div class="dos">
+          <div class="campo"><label for="wMinimo">Pedido mínimo (camisetas)</label><input id="wMinimo" data-w="minimo" type="number" min="1" max="9999" inputmode="numeric"></div>
+        </div>
+        <div class="campo"><label>Precio por cantidad</label><div id="wTramos" style="display:grid;gap:8px"></div><div><button class="btn chico" id="wTramoMas" type="button">+ Agregar escala</button></div>
+          <span class="ayuda">El precio por camiseta según cuántas lleva el pedido. Sin escalas, la web dice que el precio lo confirma el equipo.</span></div>
+        <label class="opcion"><input type="checkbox" id="wOcultarPrecios" data-w="ocultarPrecios"><span><b>Ocultar los precios</b><small>La web no muestra las escalas ni el total: pide que el equipo los confirme.</small></span></label>
+        <label class="opcion"><input type="checkbox" id="wPausa" data-w="pausa"><span><b>Pausar los pedidos</b><small>El catálogo se sigue viendo, pero no se puede enviar el pedido.</small></span></label>
+        <div class="campo"><label for="wAviso">Aviso arriba de la web</label><input id="wAviso" data-w="aviso" maxlength="160" placeholder="Ej: Cerrado por balance hasta el lunes 24"><span class="ayuda">Si lo dejás vacío, no se muestra.</span></div>
+      </div></details>
+
+      <details class="bloque"><summary>Catálogo</summary><div class="cuerpo">
+        <label class="opcion"><input type="checkbox" id="wLimitar" data-w="limitarStock"><span><b>Limitar la cantidad al stock</b><small>Nadie puede pedir más camisetas de un talle que las que hay.</small></span></label>
+        <label class="opcion"><input type="checkbox" id="wUnidades" data-w="mostrarUnidades"><span><b>Mostrar cuántas quedan de cada talle</b><small>Apagado, la web no dice cuántas unidades hay.</small></span></label>
+        <label class="opcion"><input type="checkbox" id="wVersion" data-w="filtroVersion"><span><b>Mostrar el filtro «Versión jugador / fan»</b><small>Apagado, la web usa solo los filtros que armaste en «Modelos de la tienda».</small></span></label>
+        <div class="campo" style="max-width:320px"><label for="wOrden">Ordenar el catálogo por</label><select id="wOrden" data-w="orden"><option value="novedades">Novedades primero</option><option value="stock">Más stock primero</option><option value="nombre">Nombre (A a Z)</option></select></div>
+      </div></details>
+
+      <details class="bloque"><summary>Reglas y textos de compra</summary><div class="cuerpo">
+        <div id="wReglas" style="display:grid;gap:10px"></div><div><button class="btn chico" id="wReglaMas" type="button">+ Agregar regla</button></div>
+        <div class="campo"><label for="wCondiciones">Condiciones (van al final del mensaje del pedido)</label><textarea id="wCondiciones" data-w="condiciones" rows="2" maxlength="500"></textarea></div>
+        <div class="campo"><label for="wCierre">Mensaje de cierre</label><input id="wCierre" data-w="cierre" maxlength="240"></div>
+        <div class="campo"><label for="wPie">Pie de página</label><input id="wPie" data-w="pie" maxlength="120"></div>
+      </div></details>
+
+      <details class="bloque"><summary>Horario, enlaces y buscadores</summary><div class="cuerpo">
+        <div class="campo"><label for="wHorario">Horario de atención</label><input id="wHorario" data-w="horario" maxlength="120" placeholder="Lunes a viernes de 9 a 18"></div>
+        <div class="dos">
+          <div class="campo"><label for="wInstagram">Instagram</label><input id="wInstagram" data-w="instagram" maxlength="200" placeholder="https://instagram.com/..."></div>
+          <div class="campo"><label for="wTienda">Enlace a la tienda minorista</label><input id="wTienda" data-w="tiendaUrl" maxlength="200" placeholder="https://..."></div>
+        </div>
+        <div class="campo"><label for="wSeoTitulo">Título en Google y en la pestaña</label><input id="wSeoTitulo" data-w="seoTitulo" maxlength="70"></div>
+        <div class="campo"><label for="wSeoDescripcion">Descripción en Google</label><textarea id="wSeoDescripcion" data-w="seoDescripcion" rows="2" maxlength="200"></textarea></div>
+      </div></details>
+
+      <div class="mensaje" id="msgWeb" role="status"></div>
+      <div class="barra-web" id="barraWeb" hidden>
+        <span>Hay cambios sin publicar</span>
+        <span style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn chico" id="wDescartar" type="button">Descartar</button><button class="btn fuerte" id="wPublicar" type="button">Publicar en la web</button></span>
+      </div>
+      <div><button class="btn chico" id="wRestablecer" type="button">Volver a los valores de siempre</button> <span class="ayuda">(no se guarda hasta que publiques)</span></div>
+    </div>
+    <div class="previa-web"><div class="estado" style="display:flex;justify-content:space-between"><b>Así se ve la web</b><a href="/" target="_blank" rel="noopener" style="color:var(--mostaza-claro)">Abrir la real</a></div><div class="mini" id="wMini"></div></div>
   </div></div></section>
 
   <!-- HISTORIAL -->
@@ -323,11 +443,12 @@ $("btnSalir").addEventListener("click", async () => {
 /* ---------- pestañas ---------- */
 document.querySelectorAll(".pestana").forEach((b) => b.addEventListener("click", () => {
   document.querySelectorAll(".pestana").forEach((x) => x.setAttribute("aria-selected", String(x === b)));
-  ["stock", "pedidos", "tienda", "historial"].forEach((p) => ($("pestana" + p[0].toUpperCase() + p.slice(1)).hidden = p !== b.dataset.pestana));
+  ["stock", "pedidos", "tienda", "web", "historial"].forEach((p) => ($("pestana" + p[0].toUpperCase() + p.slice(1)).hidden = p !== b.dataset.pestana));
   if (b.dataset.pestana === "stock" && planillaVieja && !pend.size) cargarPlanilla();
   if (b.dataset.pestana === "historial") cargarHistorial();
   if (b.dataset.pestana === "pedidos") cargarPedidos();
   if (b.dataset.pestana === "tienda") cargarTienda();
+  if (b.dataset.pestana === "web" && (!W || !webSucia())) cargarWeb();
 }));
 
 /* ---------- planilla ---------- */
@@ -455,7 +576,7 @@ $("cabeza").addEventListener("change", (e) => {
 });
 $("buscar").addEventListener("input", pintar); $("filtro").addEventListener("change", pintar);
 $("btnDescartar").addEventListener("click", () => { if (confirm("¿Descartar todos los cambios sin guardar?")) { pend.clear(); pintar(); } });
-window.addEventListener("beforeunload", (e) => { if (pend.size) { e.preventDefault(); e.returnValue = ""; } });
+window.addEventListener("beforeunload", (e) => { if (pend.size || webSucia()) { e.preventDefault(); e.returnValue = ""; } });
 
 /* ---------- velos ---------- */
 function abrir(id) { $("velo").classList.add("on"); $(id).classList.add("on"); }
@@ -697,6 +818,120 @@ $("btnGuardarFiltros").addEventListener("click", async () => {
   catch (err) { msg.textContent = err.message; }
   finally { $("btnGuardarFiltros").disabled = false; }
 });
+
+/* ---------- web mayorista ---------- */
+let W = null, WBASE = "", webPorDefecto = null;
+function renderMensaje(plantilla, v) {
+  const lineas = plantilla.split("\n").filter((l) => { const ph = l.match(/\{[a-z]+\}/g); return !ph || ph.some((p) => String(v[p.slice(1, -1)] == null ? "" : v[p.slice(1, -1)]).trim() !== ""); });
+  return lineas.map((l) => l.replace(/\{([a-z]+)\}/g, (_, k) => (v[k] == null ? "" : v[k]))).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+const firmaWeb = () => { const { logoHash, ...resto } = W; return JSON.stringify(resto); };
+const webSucia = () => !!W && firmaWeb() !== WBASE;
+const COLORES = [["#1fd65f", "Verde cancha"], ["#3aa9ff", "Celeste"], ["#ffc72c", "Amarillo"], ["#ff5a4d", "Rojo"], ["#c58bff", "Violeta"]];
+const DATOS_MENSAJE = ["marca", "codigo", "nombre", "negocio", "pedido", "unidades", "precio", "total", "notas", "condiciones"];
+const dinero2 = (n) => "$" + Number(n).toLocaleString("es-AR");
+
+async function cargarWeb() {
+  $("msgWeb").textContent = "";
+  try { const d = await api("/web"); W = d.ajustes; webPorDefecto = d.porDefecto; WBASE = firmaWeb(); pintarFormWeb(); }
+  catch (e) { $("msgWeb").className = "mensaje"; $("msgWeb").textContent = "No se pudo cargar: " + e.message; }
+}
+function pintarFormWeb() {
+  document.querySelectorAll("#pestanaWeb [data-w]").forEach((el) => { const v = W[el.dataset.w]; if (el.type === "checkbox") el.checked = !!v; else el.value = v == null ? "" : v; });
+  $("wColores").innerHTML = COLORES.map(([c, n]) => `<button type="button" style="background:${c}" data-color="${c}" aria-label="${n}" title="${n}" aria-pressed="${W.color.toLowerCase() === c}"></button>`).join("") + `<input type="color" id="wColorLibre" value="${esc(W.color)}" aria-label="Otro color">`;
+  $("wDatos").innerHTML = DATOS_MENSAJE.map((d) => `<button type="button" data-dato="${d}">{${d}}</button>`).join("");
+  pintarTramosWeb(); pintarReglasWeb(); pintarLogoWeb(); refrescarWeb();
+}
+function pintarLogoWeb() { $("wLogoVista").src = "/logo.webp" + (W.logoHash ? "?v=" + W.logoHash : ""); }
+function refrescarWeb() {
+  const wsp = String(W.whatsapp || ""), ok = /^\d{10,15}$/.test(wsp);
+  $("wWhatsappAyuda").className = "ayuda"; $("wWhatsappAyuda").style.color = ok ? "var(--ok)" : "var(--error)";
+  $("wWhatsappAyuda").textContent = ok ? `Los pedidos llegan al chat de wa.me/${wsp}.` : "Con código de país, sin +, espacios ni guiones. Para Argentina empieza con 549 (por ejemplo 5493562514675).";
+  const trs = tramosOrdenados(), t9 = trs.filter((t) => t.desde <= 9).pop();
+  $("wMensajeVista").textContent = renderMensaje(W.mensaje || "", { marca: W.marca, codigo: "A-7K3QX", nombre: "Pablo", negocio: "Kiosco Pablo, Rosario", pedido: "1) Barcelona 26/27\n   M x2, L x3\n2) River ORIGINAL\n   S x4",
+    unidades: "9 camisetas", precio: !W.ocultarPrecios && t9 ? dinero2(t9.precio) : "", total: !W.ocultarPrecios && t9 ? dinero2(9 * t9.precio) : "", notas: "", condiciones: W.condiciones });
+  pintarMiniWeb();
+  $("barraWeb").hidden = !webSucia();
+}
+const tramosOrdenados = () => W.tramos.filter((t) => t.desde > 0 && t.precio > 0).slice().sort((a, b) => a.desde - b.desde);
+function pintarMiniWeb() {
+  const m = $("wMini"); m.style.setProperty("--macc", /^#[0-9a-fA-F]{6}$/.test(W.color) ? W.color : "#1fd65f");
+  const trs = W.ocultarPrecios ? [] : tramosOrdenados();
+  const partes = (W.titulo || "").trim().split(/\s+/).filter(Boolean), nEm = partes.length >= 3 ? 2 : 1;
+  const titulo = partes.length ? `${esc(partes.slice(0, -nEm).join(" "))}${partes.length > nEm ? " " : ""}<em>${esc(partes.slice(-nEm).join(" "))}</em>` : "";
+  m.innerHTML = `<div class="banda">${esc(W.bandaIzq)} · ${esc(W.bandaDer)}</div>${W.aviso ? `<div class="aviso">${esc(W.aviso)}</div>` : ""}
+    <div class="cab"><img src="/logo.webp${W.logoHash ? "?v=" + W.logoHash : ""}" alt=""><b>${esc(W.marca)}</b><span class="rot">Mayorista</span></div>
+    <div class="hero"><h4>${titulo}</h4><p>${esc(W.bajada)}</p>
+      ${trs.map((t) => `<div class="cartel"><span class="de"><b>${t.desde}</b>o más</span><span class="mo">${dinero2(t.precio)}</span></div>`).join("")}
+      <div class="minimo"><span>Pedido mínimo</span><b>${W.minimo} camisetas</b></div></div>
+    <div class="pedido"><div class="bt ${W.pausa ? "pausa" : ""}">${W.pausa ? "Pedidos pausados por ahora" : "Enviar pedido por WhatsApp"}</div>${W.horario ? `<small>Atención: ${esc(W.horario)}</small>` : ""}</div>`;
+}
+document.querySelector("#pestanaWeb").addEventListener("input", (e) => {
+  const k = e.target.dataset.w; if (!k || !W) return;
+  W[k] = e.target.type === "checkbox" ? e.target.checked : e.target.type === "number" ? (parseInt(e.target.value, 10) || 0) : e.target.value;
+  if (k === "color") pintarFormWeb(); else refrescarWeb();
+});
+document.querySelector("#pestanaWeb").addEventListener("change", (e) => { if (e.target.type === "checkbox" && e.target.dataset.w) { W[e.target.dataset.w] = e.target.checked; refrescarWeb(); } });
+$("wColores").addEventListener("click", (e) => { const b = e.target.closest("[data-color]"); if (b) { W.color = b.dataset.color; pintarFormWeb(); } });
+$("wColores").addEventListener("input", (e) => { if (e.target.id === "wColorLibre") { W.color = e.target.value; document.querySelectorAll("#wColores [data-color]").forEach((x) => x.setAttribute("aria-pressed", "false")); refrescarWeb(); } });
+$("wDatos").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-dato]"); if (!b) return; const a = $("wMensaje"), t = `{${b.dataset.dato}}`, i = a.selectionStart == null ? a.value.length : a.selectionStart;
+  a.value = a.value.slice(0, i) + t + a.value.slice(a.selectionEnd == null ? i : a.selectionEnd); W.mensaje = a.value; a.focus(); a.setSelectionRange(i + t.length, i + t.length); refrescarWeb();
+});
+/* precios por cantidad */
+function pintarTramosWeb() {
+  $("wTramos").innerHTML = W.tramos.map((t, i) => `<div class="fila-edit"><div class="dos"><div class="campo"><label for="tD${i}">Desde (camisetas)</label><input id="tD${i}" type="number" min="1" inputmode="numeric" data-td="${i}" value="${t.desde}"></div>
+    <div class="campo"><label for="tP${i}">Precio por camiseta ($)</label><input id="tP${i}" type="number" min="1" inputmode="numeric" data-tp="${i}" value="${t.precio}"></div></div><div><button class="btn chico" data-tq="${i}" type="button">Quitar</button></div></div>`).join("") || '<p class="ayuda">Sin escalas: la web dice que el precio lo confirma el equipo.</p>';
+}
+$("wTramos").addEventListener("input", (e) => { const d = e.target.dataset, v = parseInt(e.target.value, 10) || 0; if (d.td !== undefined) W.tramos[d.td].desde = v; if (d.tp !== undefined) W.tramos[d.tp].precio = v; refrescarWeb(); });
+$("wTramos").addEventListener("click", (e) => { const q = e.target.closest("[data-tq]"); if (q) { W.tramos.splice(Number(q.dataset.tq), 1); pintarTramosWeb(); refrescarWeb(); } });
+$("wTramoMas").addEventListener("click", () => { const ult = tramosOrdenados().pop(); W.tramos.push({ desde: ult ? ult.desde * 2 : 6, precio: ult ? ult.precio : 0 }); pintarTramosWeb(); refrescarWeb(); });
+/* reglas */
+function pintarReglasWeb() {
+  $("wReglas").innerHTML = W.reglas.map((r, i) => `<div class="fila-edit"><div class="dos"><div class="campo"><label for="rE${i}">Etiqueta</label><input id="rE${i}" data-re="${i}" maxlength="30" value="${esc(r.etiqueta)}"></div>
+    <div class="campo"><label for="rT${i}">Título</label><input id="rT${i}" data-rt="${i}" maxlength="60" value="${esc(r.titulo)}"></div></div>
+    <div class="campo"><label for="rX${i}">Texto</label><textarea id="rX${i}" data-rx="${i}" rows="2" maxlength="260">${esc(r.texto)}</textarea></div>
+    <div style="display:flex;gap:8px"><button class="btn chico" data-rup="${i}" type="button" ${i === 0 ? "disabled" : ""}>Subir</button><button class="btn chico" data-rq="${i}" type="button">Quitar</button></div></div>`).join("") || '<p class="ayuda">Sin reglas: no se muestra la franja de condiciones.</p>';
+}
+$("wReglas").addEventListener("input", (e) => { const d = e.target.dataset; if (d.re !== undefined) W.reglas[d.re].etiqueta = e.target.value; if (d.rt !== undefined) W.reglas[d.rt].titulo = e.target.value; if (d.rx !== undefined) W.reglas[d.rx].texto = e.target.value; refrescarWeb(); });
+$("wReglas").addEventListener("click", (e) => {
+  const q = e.target.closest("[data-rq]"), u = e.target.closest("[data-rup]");
+  if (q) W.reglas.splice(Number(q.dataset.rq), 1); else if (u) { const i = Number(u.dataset.rup); [W.reglas[i - 1], W.reglas[i]] = [W.reglas[i], W.reglas[i - 1]]; } else return;
+  pintarReglasWeb(); refrescarWeb();
+});
+$("wReglaMas").addEventListener("click", () => { if (W.reglas.length >= 6) { aviso("Son hasta 6 reglas."); return; } W.reglas.push({ etiqueta: "", titulo: "", texto: "" }); pintarReglasWeb(); refrescarWeb(); });
+/* logo: se publica apenas se sube */
+function reducirLogo(archivo) {
+  return new Promise((ok, mal) => {
+    const lector = new FileReader();
+    lector.onerror = () => mal(new Error("No se pudo leer la imagen."));
+    lector.onload = () => { const img = new Image(); img.onerror = () => mal(new Error("Ese archivo no es una imagen válida."));
+      img.onload = () => { const k = Math.min(1, 512 / Math.max(img.width, img.height)), c = document.createElement("canvas"); c.width = Math.max(1, Math.round(img.width * k)); c.height = Math.max(1, Math.round(img.height * k));
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height); ok(c.toDataURL("image/png")); };
+      img.src = lector.result; };
+    lector.readAsDataURL(archivo);
+  });
+}
+$("wLogo").addEventListener("change", async (e) => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  try { const url = await reducirLogo(f); const r = await api("/web/logo", { metodo: "PUT", cuerpo: { datos: url } }); W.logoHash = r.version; pintarLogoWeb(); refrescarWeb(); aviso("Logo publicado."); }
+  catch (err) { $("msgWeb").className = "mensaje"; $("msgWeb").textContent = err.message; }
+});
+$("wLogoQuitar").addEventListener("click", async () => {
+  try { await api("/web/logo", { metodo: "DELETE" }); W.logoHash = ""; pintarLogoWeb(); refrescarWeb(); aviso("Volvió el logo de siempre."); }
+  catch (err) { $("msgWeb").className = "mensaje"; $("msgWeb").textContent = err.message; }
+});
+/* guardar */
+$("wPublicar").addEventListener("click", async () => {
+  const msg = $("msgWeb"); msg.className = "mensaje"; msg.textContent = ""; $("wPublicar").disabled = true;
+  const { logoHash, ...cuerpo } = W;
+  try { const r = await api("/web", { metodo: "PUT", cuerpo }); await cargarWeb(); aviso(r.cambios.length ? `Publicado: ${r.cambios.join(", ")}.` : "No había cambios."); }
+  catch (err) { msg.textContent = err.message; msg.scrollIntoView({ block: "center" }); }
+  finally { $("wPublicar").disabled = false; }
+});
+$("wDescartar").addEventListener("click", () => { if (confirm("¿Descartar los cambios sin publicar?")) cargarWeb(); });
+$("wRestablecer").addEventListener("click", () => { if (!confirm("¿Volver a los valores de siempre? No se guarda hasta que publiques.")) return; W = { ...webPorDefecto, logoHash: W.logoHash }; pintarFormWeb(); });
 
 arrancar();
 </script>

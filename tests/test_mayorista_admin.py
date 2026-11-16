@@ -15,6 +15,7 @@ Tiendanube se reemplaza por una tienda de mentira en memoria y la base por
 
 from __future__ import annotations
 
+import base64
 import sys
 import time
 from pathlib import Path
@@ -25,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "mayorista"))
 
 import acceso  # noqa: E402
 import admin  # noqa: E402
+import ajustes  # noqa: E402
 import almacen  # noqa: E402
 import historial as hist  # noqa: E402
 import tn  # noqa: E402
@@ -32,6 +34,8 @@ from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 CLAVE = "clave-de-prueba-123"
+DEFECTO_WEB = ajustes.por_defecto({}, "Mi Tienda", "5491100000000", "https://tienda.example", True, 6, [{"desde": 6, "precio": 28000}, {"desde": 12, "precio": 25000}])
+PNG_LOGO = base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"0" * 50).decode()
 FILTROS = [{"id": "arg", "nombre": "Fútbol argentino", "tiendanube": ["FÚTBOL ARGENTINO"]}]  # lo que diría negocio.json
 H = {"x-mayorista": "1"}
 
@@ -111,7 +115,7 @@ def cliente(monkeypatch, tienda, memoria, alm, invalidaciones):
     monkeypatch.setattr(acceso, "SECRETO", "s" * 40)
     acceso._fallos.clear()
     app = FastAPI()
-    app.include_router(admin.crear_router(memoria, lambda: invalidaciones.append(1), alm, FILTROS))
+    app.include_router(admin.crear_router(memoria, lambda: invalidaciones.append(1), alm, FILTROS, lambda: dict(DEFECTO_WEB)))
     return TestClient(app)
 
 
@@ -153,6 +157,7 @@ def pedido(alm, codigo, *items, estado="nuevo"):
         ("post", "/admin/api/stock/aplicar"), ("post", "/admin/api/pedidos/A-AAAAA/confirmar"), ("post", "/admin/api/tienda/incluir"),
         ("post", "/admin/api/tienda/cargar-stock"), ("post", "/admin/api/tienda/ignorar"), ("post", "/admin/api/tienda/restaurar"),
         ("get", "/admin/api/tienda/categorias"), ("put", "/admin/api/tienda/categorias"),
+        ("get", "/admin/api/web"), ("put", "/admin/api/web"), ("put", "/admin/api/web/logo"), ("delete", "/admin/api/web/logo"),
     ],
 )
 def test_sin_sesion_no_se_entra_a_nada(cliente, metodo, ruta):
@@ -748,3 +753,128 @@ def test_filtros_mal_armados_no_se_guardan(sesion, categorias):
 def test_los_ignorados_y_los_filtros_exigen_el_header_propio(sesion):
     assert sesion.post("/admin/api/tienda/ignorar", json={"producto": 3}).status_code == 403
     assert sesion.put("/admin/api/tienda/categorias", json={"categorias": []}).status_code == 403
+
+
+# -- Los ajustes de la web --------------------------------------------------------
+
+
+def web(**cambios):
+    """Un conjunto completo de ajustes válidos, como lo manda el panel."""
+    return {**{k: v for k, v in DEFECTO_WEB.items() if k != "logoHash"}, **cambios}
+
+
+def test_los_ajustes_arrancan_con_los_de_siempre(sesion):
+    d = sesion.get("/admin/api/web").json()
+
+    assert d["ajustes"]["marca"] == "Mi Tienda" and d["ajustes"]["whatsapp"] == "5491100000000"
+    assert d["ajustes"] == d["porDefecto"]
+    assert d["logo"] is False
+
+
+def test_guardar_los_ajustes_los_cambia_y_lo_anota(sesion, invalidaciones, memoria):
+    r = sesion.put("/admin/api/web", json=web(whatsapp="5493562514675", marca="Simplemente Fútbol", minimo=12), headers=H)
+
+    assert r.status_code == 200
+    assert set(r.json()["cambios"]) == {"WhatsApp", "nombre", "pedido mínimo"}
+    ver = sesion.get("/admin/api/web").json()["ajustes"]
+    assert (ver["whatsapp"], ver["marca"], ver["minimo"]) == ("5493562514675", "Simplemente Fútbol", 12)
+    assert invalidaciones
+    assert memoria.filas[-1]["accion"] == "config" and "WhatsApp" in memoria.filas[-1]["talle"]
+
+
+def test_guardar_sin_cambiar_nada_no_anota(sesion, memoria):
+    sesion.put("/admin/api/web", json=web(), headers=H)
+
+    assert memoria.filas == []
+
+
+def test_los_ajustes_se_limpian_antes_de_guardar(sesion):
+    sesion.put(
+        "/admin/api/web",
+        json=web(
+            marca="  Mi   Tienda  ", color="#1FD65F",
+            tramos=[{"desde": 12, "precio": 25000}, {"desde": 6, "precio": 28000}],
+            reglas=[{"etiqueta": "Envío", "titulo": " Vía Cargo ", "texto": "A todo el país"}, {"etiqueta": "", "titulo": "  ", "texto": ""}],
+        ),
+        headers=H,
+    )
+
+    ver = sesion.get("/admin/api/web").json()["ajustes"]
+    assert ver["marca"] == "Mi Tienda" and ver["color"] == "#1fd65f"
+    assert [t["desde"] for t in ver["tramos"]] == [6, 12], "las escalas quedan de menor a mayor"
+    assert ver["reglas"] == [{"etiqueta": "Envío", "titulo": "Vía Cargo", "texto": "A todo el país"}], "las reglas vacías se descartan"
+
+
+@pytest.mark.parametrize(
+    "cambios",
+    [
+        {"whatsapp": "+54 9 3562 514675"},
+        {"whatsapp": "12345"},
+        {"color": "verde"},
+        {"color": "#12345"},
+        {"marca": "   "},
+        {"titulo": ""},
+        {"minimo": 0},
+        {"orden": "al azar"},
+        {"mensaje": "Hola, quiero comprar"},  # sin {pedido}
+        {"mensaje": "{pedido} {inventado}"},  # un dato que no existe
+        {"tramos": [{"desde": 6, "precio": 1}, {"desde": 6, "precio": 2}]},
+        {"instagram": "instagram.com/algo"},
+        {"tiendaUrl": "javascript:alert(1)"},
+        {"titulo": "x" * 41},
+    ],
+)
+def test_ajustes_mal_armados_no_se_guardan(sesion, cambios):
+    r = sesion.put("/admin/api/web", json=web(**cambios), headers=H)
+
+    assert r.status_code == 422
+    assert sesion.get("/admin/api/web").json()["ajustes"] == sesion.get("/admin/api/web").json()["porDefecto"]
+
+
+def test_el_mensaje_puede_usar_todos_los_datos_conocidos(sesion):
+    todos = " ".join("{" + d + "}" for d in ajustes.DATOS_DEL_MENSAJE)
+
+    assert sesion.put("/admin/api/web", json=web(mensaje=todos), headers=H).status_code == 200
+
+
+def test_el_logo_se_sube_se_ve_y_se_puede_quitar(sesion, alm):
+    r = sesion.put("/admin/api/web/logo", json={"datos": "data:image/png;base64," + PNG_LOGO}, headers=H)
+
+    assert r.status_code == 200
+    guardado = alm.config("logo")
+    assert guardado["tipo"] == "image/png" and guardado["hash"] == r.json()["version"]
+    d = sesion.get("/admin/api/web").json()
+    assert d["logo"] is True and d["ajustes"]["logoHash"] == r.json()["version"]
+
+    sesion.delete("/admin/api/web/logo", headers=H)
+    d = sesion.get("/admin/api/web").json()
+    assert d["logo"] is False and d["ajustes"]["logoHash"] == ""
+
+
+def test_guardar_los_ajustes_no_pierde_el_logo(sesion):
+    version = sesion.put("/admin/api/web/logo", json={"datos": PNG_LOGO}, headers=H).json()["version"]
+
+    sesion.put("/admin/api/web", json=web(marca="Otra"), headers=H)
+
+    assert sesion.get("/admin/api/web").json()["ajustes"]["logoHash"] == version
+
+
+@pytest.mark.parametrize(
+    "datos",
+    [
+        pytest.param("esto no es una imagen", id="no-es-base64"),
+        pytest.param(base64.b64encode(b"texto cualquiera").decode(), id="no-es-imagen"),
+        pytest.param(base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"0" * (1024 * 1024)).decode(), id="pesa-mas-de-1mb"),
+    ],
+)
+def test_un_logo_que_no_sirve_no_se_acepta(sesion, alm, datos):
+    r = sesion.put("/admin/api/web/logo", json={"datos": datos}, headers=H)
+
+    assert r.status_code == 422
+    assert alm.config("logo") is None
+
+
+def test_los_ajustes_exigen_el_header_propio(sesion):
+    assert sesion.put("/admin/api/web", json=web()).status_code == 403
+    assert sesion.put("/admin/api/web/logo", json={"datos": PNG_LOGO}).status_code == 403
+    assert sesion.delete("/admin/api/web/logo").status_code == 403

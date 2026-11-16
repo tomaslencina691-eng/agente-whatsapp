@@ -49,6 +49,7 @@ def cache_limpia():
     servidor.tn._fotos.clear()
     servidor._intentos.clear()
     servidor._categorias_cache.update(t=0.0, valor=None)
+    servidor._web_cache.update(t=0.0, valor=None)
     yield
 
 
@@ -475,3 +476,174 @@ def test_si_la_base_falla_los_filtros_siguen_con_los_ultimos_conocidos(cliente, 
     monkeypatch.setattr(propio, "config", cae)
 
     assert [c["id"] for c in cliente.get("/api/catalogo").json()["categorias"]] == ["x"]
+
+
+# -- Los ajustes que se editan en el panel -----------------------------------------
+
+
+def guardar_web(propio, **cambios):
+    propio.guardar_config("web", {**servidor._ajustes_de_siempre(), **cambios})
+    servidor._web_cache.update(t=0.0, valor=None)
+
+
+def test_sin_ajustes_guardados_la_web_usa_negocio_json(cliente, monkeypatch, propio):
+    monkeypatch.setattr(servidor, "_traer_productos", lambda: [producto()])
+    propio.cargar([(1, "M", 3)])
+
+    d = cliente.get("/api/catalogo").json()
+
+    assert (d["titulo"], d["bandaIzq"], d["pausa"], d["aviso"], d["color"]) == ("Camisetas por mayor.", "Solo mayoristas", False, "", "#1fd65f")
+    assert d["mensaje"] == servidor.ajustes.MENSAJE_POR_DEFECTO
+    assert d["logo"] == "logo.webp"
+
+
+def test_los_ajustes_del_panel_llegan_a_la_web(cliente, monkeypatch, propio):
+    monkeypatch.setattr(servidor, "_traer_productos", lambda: [producto()])
+    propio.cargar([(1, "M", 3)])
+    guardar_web(propio, marca="Otra Marca", whatsapp="5493562514675", minimo=10, color="#3aa9ff", titulo="Todo por mayor.", aviso="Cerrado por balance",
+                tramos=[{"desde": 10, "precio": 30000}, {"desde": 20, "precio": 27000}], horario="Lunes a viernes de 9 a 18", instagram="https://instagram.com/sf",
+                mostrarUnidades=False, filtroVersion=False, logoHash="abc12345")
+
+    d = cliente.get("/api/catalogo").json()
+
+    assert (d["marca"], d["whatsapp"], d["minimo"], d["color"], d["titulo"], d["aviso"]) == ("Otra Marca", "5493562514675", 10, "#3aa9ff", "Todo por mayor.", "Cerrado por balance")
+    assert d["tramos"] == [{"desde": 20, "precio": 27000}, {"desde": 10, "precio": 30000}], "de mayor a menor, como espera la web"
+    assert (d["horario"], d["instagram"], d["mostrarUnidades"], d["filtroVersion"]) == ("Lunes a viernes de 9 a 18", "https://instagram.com/sf", False, False)
+    assert d["logo"] == "logo.webp?v=abc12345"
+
+
+def test_con_los_precios_ocultos_no_se_mandan(cliente, monkeypatch, propio):
+    monkeypatch.setattr(servidor, "_traer_productos", lambda: [producto()])
+    propio.cargar([(1, "M", 3)])
+    guardar_web(propio, ocultarPrecios=True)
+
+    assert cliente.get("/api/catalogo").json()["tramos"] == []
+
+
+def test_un_enlace_a_la_tienda_que_no_es_web_no_se_ofrece(cliente, monkeypatch, propio):
+    monkeypatch.setattr(servidor, "_traer_productos", lambda: [producto()])
+    propio.cargar([(1, "M", 3)])
+    guardar_web(propio, tiendaUrl="javascript:alert(1)")
+
+    assert cliente.get("/api/catalogo").json()["tiendaUrl"] == ""
+
+
+def test_los_ajustes_que_ya_no_existen_se_ignoran(cliente, monkeypatch, propio):
+    monkeypatch.setattr(servidor, "_traer_productos", lambda: [producto()])
+    propio.cargar([(1, "M", 3)])
+    propio.guardar_config("web", {"marca": "Otra", "campoViejo": "x"})
+    servidor._web_cache.update(t=0.0, valor=None)
+
+    d = cliente.get("/api/catalogo").json()
+
+    assert d["marca"] == "Otra" and "campoViejo" not in d and d["minimo"] == 6
+
+
+def test_el_orden_del_catalogo_se_elige(cliente, monkeypatch, propio):
+    monkeypatch.setattr(servidor, "_traer_productos", lambda: [producto(id=1, nombre="Boca"), producto(id=2, nombre="River"), producto(id=3, nombre="Argentina")])
+    propio.cargar([(1, "M", 9), (2, "M", 1), (3, "M", 5)])
+
+    def orden(valor):
+        guardar_web(propio, orden=valor)
+        return [p["id"] for p in cliente.get("/api/catalogo").json()["productos"]]
+
+    assert orden("novedades") == [3, 2, 1]
+    assert orden("stock") == [1, 3, 2]
+    assert orden("nombre") == [3, 1, 2]
+
+
+def test_con_los_pedidos_en_pausa_no_se_guardan_pedidos(cliente, monkeypatch, propio):
+    monkeypatch.setattr(servidor, "_traer_productos", lambda: [producto()])
+    guardar_web(propio, pausa=True)
+
+    r = cliente.post("/api/pedido", json=pedido_web())
+
+    assert r.status_code == 409
+    assert propio.pedidos() == []
+
+
+def test_el_total_estimado_usa_los_precios_del_panel(cliente, monkeypatch, propio):
+    guardar_web(propio, tramos=[{"desde": 3, "precio": 1000}])
+
+    cliente.post("/api/pedido", json=pedido_web(items=[{"producto": 1, "talle": "M", "cantidad": 4}]))
+
+    assert propio.pedido("A-7K3QX")["total"] == 4000
+
+
+def test_el_logo_subido_en_el_panel_reemplaza_al_de_la_carpeta(cliente, propio):
+    estatico = cliente.get("/logo.webp")
+    assert estatico.status_code == 200 and estatico.headers["content-type"].startswith("image/webp")
+
+    png = b"\x89PNG\r\n\x1a\n" + b"0" * 20
+    propio.guardar_config("logo", {"tipo": "image/png", "datos": __import__("base64").b64encode(png).decode(), "hash": "x"})
+    propio_logo = cliente.get("/logo.webp")
+
+    assert propio_logo.content == png and propio_logo.headers["content-type"] == "image/png"
+
+
+def test_sin_logo_guardado_vuelve_al_de_la_carpeta(cliente, propio):
+    propio.guardar_config("logo", {})
+
+    assert cliente.get("/logo.webp").headers["content-type"].startswith("image/webp")
+
+
+def test_el_titulo_y_la_descripcion_para_buscadores_van_en_la_pagina(cliente, propio):
+    guardar_web(propio, seoTitulo='Mayorista <SF> & "Camisetas"', seoDescripcion="Camisetas por mayor, con stock real.")
+
+    texto = cliente.get("/").text
+
+    assert "<title>Mayorista &lt;SF&gt; &amp; &quot;Camisetas&quot;</title>" in texto or "<title>Mayorista &lt;SF&gt; &amp; \"Camisetas\"</title>" in texto
+    assert 'content="Camisetas por mayor, con stock real."' in texto
+
+
+def test_sin_titulo_para_buscadores_la_pagina_queda_como_estaba(cliente, propio):
+    assert "<title>Mayorista</title>" in cliente.get("/").text
+
+
+# -- El mensaje del pedido (JavaScript: se prueba con node, si está) ----------------
+
+NODE = __import__("shutil").which("node")
+PAGINAS = [servidor.CARPETA / "static" / "index.html", servidor.CARPETA / "static" / "admin" / "index.html"]
+
+
+def funcion_renderizar(pagina) -> str:
+    texto = pagina.read_text(encoding="utf-8")
+    inicio = texto.index("function renderMensaje")
+    fin = texto.index("\n}\n", inicio) + 3
+    return texto[inicio:fin]
+
+
+def renderizar(plantilla: str, datos: dict) -> str:
+    import json
+    import subprocess
+
+    codigo = funcion_renderizar(PAGINAS[0]) + f"\nprocess.stdout.write(renderMensaje({json.dumps(plantilla)}, {json.dumps(datos)}));"
+    return subprocess.run([NODE, "-e", codigo], capture_output=True, text=True, encoding="utf-8", check=True).stdout
+
+
+DATOS = {"marca": "SF", "codigo": "A-7K3QX", "nombre": "Pablo", "negocio": "Kiosco", "pedido": "1) Boca\n   M x2", "unidades": "2 camisetas", "precio": "$28.000", "total": "$56.000", "notas": "", "condiciones": ""}
+
+
+@pytest.mark.skipif(not NODE, reason="hace falta node")
+def test_el_mensaje_por_defecto_sale_como_siempre_y_sin_lineas_vacias():
+    texto = renderizar(servidor.ajustes.MENSAJE_POR_DEFECTO, DATOS)
+
+    assert texto == "*PEDIDO MAYORISTA - SF*\nPedido: A-7K3QX\nNombre: Pablo\nNegocio / ciudad: Kiosco\n\n1) Boca\n   M x2\n\nTotal: 2 camisetas\nPrecio por unidad: $28.000\nTotal: $56.000"
+
+
+@pytest.mark.skipif(not NODE, reason="hace falta node")
+def test_las_lineas_con_datos_vacios_no_se_mandan():
+    texto = renderizar(servidor.ajustes.MENSAJE_POR_DEFECTO, {**DATOS, "nombre": "", "negocio": "", "precio": "", "total": ""})
+
+    assert "Nombre" not in texto and "Negocio" not in texto and "Precio por unidad" not in texto
+    assert "Total: 2 camisetas" in texto
+    assert "\n\n\n" not in texto
+
+
+@pytest.mark.skipif(not NODE, reason="hace falta node")
+def test_un_mensaje_propio_se_arma_con_los_datos():
+    assert renderizar("Hola, soy {nombre} de {negocio}.\n{pedido}", DATOS) == "Hola, soy Pablo de Kiosco.\n1) Boca\n   M x2"
+
+
+def test_la_web_y_el_panel_arman_el_mensaje_con_el_mismo_codigo():
+    assert funcion_renderizar(PAGINAS[0]) == funcion_renderizar(PAGINAS[1])

@@ -15,7 +15,8 @@ que corre en producción. Los secretos no están acá: viven en las variables de
 ## Qué se configura acá y qué no
 
 - El stock del mayorista es propio (no el de la tienda): se carga en `app.mayoristasf.digital/admin`. De la tienda solo se traen los modelos nuevos.
-- `mayorista/negocio.json`: marca, pedido mínimo, precios por cantidad, categorías y condiciones.
+- La web mayorista se edita desde el panel (pestaña «Web mayorista»): nombre, logo, color, textos de la portada, número de WhatsApp, mensaje del pedido, precios por cantidad, reglas, aviso, pausa de pedidos y más. Lo que no se tocó rige `mayorista/negocio.json`.
+- `mayorista/negocio.json`: marca, pedido mínimo, precios por cantidad, categorías y condiciones (son los valores de arranque; el panel los pisa).
   Los precios están vacíos a propósito hasta que el negocio los confirme: sin precios, la web
   dice que el precio lo confirma una persona del equipo.
 - `prompts/sistema.md`: la personalidad y las reglas del agente.

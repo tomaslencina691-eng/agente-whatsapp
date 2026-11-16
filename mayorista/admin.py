@@ -17,6 +17,7 @@ Cómo se protege un guardado:
 
 from __future__ import annotations
 
+import base64
 import logging
 import time
 from datetime import datetime, timezone
@@ -26,6 +27,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 import acceso
+import ajustes
 import almacen
 import historial as hist
 import tn
@@ -81,6 +83,10 @@ class Categoria(BaseModel):
 
 class GuardarCategorias(BaseModel):
     categorias: list[Categoria] = Field(max_length=20)
+
+
+class SubirLogo(BaseModel):
+    datos: str = Field(max_length=2_000_000)  # la imagen en base64, con o sin el prefijo "data:image/...;base64,"
 
 
 # -- Ayudantes ----------------------------------------------------------------
@@ -153,7 +159,18 @@ def filas_iniciales(productos: list[dict]) -> list[tuple[int, str, int]]:
 # -- El router ----------------------------------------------------------------
 
 
-def crear_router(historial, invalidar_cache: Callable[[], None], almacen_, categorias_base: list[dict] | None = None) -> APIRouter:
+ETIQUETAS_DE_AJUSTES = {
+    "marca": "nombre", "bandaIzq": "banda", "bandaDer": "banda", "titulo": "título", "bajada": "texto de portada", "color": "color",
+    "whatsapp": "WhatsApp", "mensaje": "mensaje del pedido", "minimo": "pedido mínimo", "tramos": "precios", "pausa": "pausa de pedidos",
+    "aviso": "aviso", "limitarStock": "límite de stock", "filtroVersion": "filtro de versión", "mostrarUnidades": "unidades que quedan",
+    "ocultarPrecios": "precios ocultos", "orden": "orden", "reglas": "reglas", "condiciones": "condiciones", "cierre": "cierre", "pie": "pie",
+    "horario": "horario", "instagram": "Instagram", "tiendaUrl": "enlace a la tienda", "seoTitulo": "título en Google", "seoDescripcion": "descripción en Google",
+}
+
+
+def crear_router(
+    historial, invalidar_cache: Callable[[], None], almacen_, categorias_base: list[dict] | None = None, web_defecto: Callable[[], dict] | None = None
+) -> APIRouter:
     router = APIRouter(prefix="/admin/api")
     nombres: dict[int, str] = {}  # los últimos nombres vistos, para el historial
     tienda: dict = {"t": 0.0, "productos": None}  # lo último que se leyó de la tienda
@@ -475,6 +492,63 @@ def crear_router(historial, invalidar_cache: Callable[[], None], almacen_, categ
         anotar(hist.lote_nuevo(), usuario, [{"accion": "carga_inicial", "producto_id": 0, "producto": "Carga inicial desde la tienda", "talle": f"{len({f[0] for f in filas})} modelos", "antes": None, "despues": sum(f[2] for f in filas)}])
         invalidar_cache()
         return {"talles": n, "modelos": len({f[0] for f in filas})}
+
+    # -- La web mayorista --
+
+    def _web_guardada() -> dict:
+        return almacen_.config("web") or {}
+
+    def _web_actual() -> dict:
+        return ajustes.combinar(web_defecto() if web_defecto else {}, _web_guardada())
+
+    @router.get("/web")
+    def web_ver(usuario: str = Depends(usuario_actual)) -> dict:
+        """Los ajustes de la web como están ahora (lo guardado sobre lo de siempre) y lo de siempre, para poder volver."""
+        guardado = almacen_.config("logo") or {}
+        return {"ajustes": _web_actual(), "porDefecto": web_defecto() if web_defecto else {}, "logo": bool(guardado.get("datos"))}
+
+    @router.put("/web")
+    def web_guardar(datos: ajustes.AjustesWeb, usuario: str = Depends(usuario_actual)) -> dict:
+        malos = ajustes.problemas(datos)
+        if malos:
+            raise HTTPException(422, " ".join(malos))
+        antes = _web_actual()
+        nuevo = datos.model_dump()
+        nuevo["tramos"] = sorted(nuevo["tramos"], key=lambda t: t["desde"])
+        nuevo["reglas"] = [{k: v.strip() for k, v in r.items()} for r in nuevo["reglas"] if any(v.strip() for v in r.values())]
+        for campo in ("marca", "bandaIzq", "bandaDer", "titulo", "bajada", "aviso", "condiciones", "cierre", "pie", "horario", "instagram", "tiendaUrl", "seoTitulo", "seoDescripcion"):
+            nuevo[campo] = " ".join(nuevo[campo].split())
+        nuevo["color"] = nuevo["color"].lower()
+        nuevo["mensaje"] = nuevo["mensaje"].strip()
+        nuevo["logoHash"] = antes.get("logoHash", "")
+        almacen_.guardar_config("web", nuevo)
+        cambiados = list(dict.fromkeys(ETIQUETAS_DE_AJUSTES[k] for k in ETIQUETAS_DE_AJUSTES if antes.get(k) != nuevo.get(k)))
+        if cambiados:
+            anotar(hist.lote_nuevo(), usuario, [{"accion": "config", "producto_id": 0, "producto": "Web mayorista", "talle": ", ".join(cambiados)[:200], "antes": None, "despues": len(cambiados)}])
+        invalidar_cache()
+        return {"guardado": True, "cambios": cambiados}
+
+    @router.put("/web/logo")
+    def web_subir_logo(datos: SubirLogo, usuario: str = Depends(usuario_actual)) -> dict:
+        try:
+            crudo, tipo = ajustes.leer_logo(datos.datos)
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from None
+        huella = ajustes.huella(crudo)
+        almacen_.guardar_config("logo", {"tipo": tipo, "datos": base64.b64encode(crudo).decode(), "hash": huella})
+        almacen_.guardar_config("web", {**_web_guardada(), "logoHash": huella})
+        anotar(hist.lote_nuevo(), usuario, [{"accion": "config", "producto_id": 0, "producto": "Web mayorista", "talle": "logo", "antes": None, "despues": 1}])
+        invalidar_cache()
+        return {"logo": True, "version": huella}
+
+    @router.delete("/web/logo")
+    def web_quitar_logo(usuario: str = Depends(usuario_actual)) -> dict:
+        """Vuelve al logo de la carpeta del sitio."""
+        almacen_.guardar_config("logo", {})
+        almacen_.guardar_config("web", {**_web_guardada(), "logoHash": ""})
+        anotar(hist.lote_nuevo(), usuario, [{"accion": "config", "producto_id": 0, "producto": "Web mayorista", "talle": "logo quitado", "antes": None, "despues": 0}])
+        invalidar_cache()
+        return {"logo": False}
 
     # -- Pedidos --
 
