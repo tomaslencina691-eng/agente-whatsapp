@@ -32,6 +32,7 @@ from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 CLAVE = "clave-de-prueba-123"
+FILTROS = [{"id": "arg", "nombre": "Fútbol argentino", "tiendanube": ["FÚTBOL ARGENTINO"]}]  # lo que diría negocio.json
 H = {"x-mayorista": "1"}
 
 
@@ -44,6 +45,8 @@ class TiendaFalsa:
             2: self._producto(2, "Argentina Retro", False, {"XL": 0}),  # oculto y sin stock
             3: self._producto(3, "River Plate - Titular 26/27", True, {"S": 1, "M": 4}),  # nuevo: la tienda lo tiene, el mayorista no
             4: self._producto(4, "Sin foto", True, {"M": 5}, fotos=False),
+            5: self._producto(5, "Oculto nuevo", False, {"M": 1}),  # sin publicar y todavía no está en el mayorista
+            6: self._producto(6, "Sin cuenta de stock", True, {"M": None}),  # la tienda no cuenta su stock
         }
 
     @staticmethod
@@ -73,6 +76,7 @@ class TiendaFalsa:
         monkeypatch.setattr(tn, "TOKEN", "token")
         monkeypatch.setattr(tn, "todos_los_productos", lambda: list(self.productos.values()))
         monkeypatch.setattr(tn, "productos_por_id", lambda ids: {i: self.productos[i] for i in ids if i in self.productos})
+        monkeypatch.setattr(tn, "categorias", lambda: [{"id": 5, "name": {"es": "FÚTBOL ARGENTINO"}, "parent": None}, {"id": 6, "name": {"es": "BOCA"}, "parent": 5}])
 
 
 @pytest.fixture
@@ -107,7 +111,7 @@ def cliente(monkeypatch, tienda, memoria, alm, invalidaciones):
     monkeypatch.setattr(acceso, "SECRETO", "s" * 40)
     acceso._fallos.clear()
     app = FastAPI()
-    app.include_router(admin.crear_router(memoria, lambda: invalidaciones.append(1), alm))
+    app.include_router(admin.crear_router(memoria, lambda: invalidaciones.append(1), alm, FILTROS))
     return TestClient(app)
 
 
@@ -147,11 +151,12 @@ def pedido(alm, codigo, *items, estado="nuevo"):
     [
         ("get", "/admin/api/stock"), ("get", "/admin/api/historial"), ("get", "/admin/api/pedidos"), ("get", "/admin/api/tienda/nuevos"),
         ("post", "/admin/api/stock/aplicar"), ("post", "/admin/api/pedidos/A-AAAAA/confirmar"), ("post", "/admin/api/tienda/incluir"),
-        ("post", "/admin/api/tienda/cargar-stock"),
+        ("post", "/admin/api/tienda/cargar-stock"), ("post", "/admin/api/tienda/ignorar"), ("post", "/admin/api/tienda/restaurar"),
+        ("get", "/admin/api/tienda/categorias"), ("put", "/admin/api/tienda/categorias"),
     ],
 )
 def test_sin_sesion_no_se_entra_a_nada(cliente, metodo, ruta):
-    r = getattr(cliente, metodo)(ruta, headers=H, **({"json": {}} if metodo == "post" else {}))
+    r = getattr(cliente, metodo)(ruta, headers=H, **({"json": {}} if metodo in ("post", "put") else {}))
 
     assert r.status_code == 401
 
@@ -624,3 +629,122 @@ def test_sin_configurar_el_panel_responde_503_y_no_deja_pasar():
 
     assert c.get("/admin/api/estado").json()["configurado"] is False
     assert c.get("/admin/api/stock").status_code == 503
+
+
+# -- Ignorar modelos, por qué no entran y filtros --------------------------------
+
+
+def ids(lista):
+    return [x["id"] for x in lista]
+
+
+def test_un_modelo_ignorado_deja_de_aparecer_como_nuevo(sesion, alm):
+    r = sesion.post("/admin/api/tienda/ignorar", json={"producto": 3}, headers=H)
+
+    assert r.status_code == 200
+    d = sesion.get("/admin/api/tienda/nuevos").json()
+    assert ids(d["nuevos"]) == []
+    assert ids(d["ignorados"]) == [3]
+    assert alm.filas([3]) == [], "ignorar no crea stock"
+
+
+def test_un_modelo_ignorado_se_puede_volver_a_considerar(sesion):
+    sesion.post("/admin/api/tienda/ignorar", json={"producto": 3}, headers=H)
+
+    sesion.post("/admin/api/tienda/restaurar", json={"producto": 3}, headers=H)
+
+    d = sesion.get("/admin/api/tienda/nuevos").json()
+    assert ids(d["nuevos"]) == [3] and d["ignorados"] == []
+
+
+def test_un_modelo_que_ya_esta_en_el_mayorista_no_se_ignora(sesion):
+    assert sesion.post("/admin/api/tienda/ignorar", json={"producto": 1}, headers=H).status_code == 409
+
+
+def test_incluir_un_modelo_ignorado_lo_saca_de_ignorados(sesion):
+    sesion.post("/admin/api/tienda/ignorar", json={"producto": 3}, headers=H)
+
+    assert sesion.post("/admin/api/tienda/incluir", json={"producto": 3}, headers=H).status_code == 200
+    assert sesion.get("/admin/api/tienda/nuevos").json()["ignorados"] == []
+
+
+def test_ignorar_y_volver_a_considerar_quedan_en_el_historial(sesion, memoria):
+    sesion.get("/admin/api/tienda/nuevos")  # trae los nombres
+    sesion.post("/admin/api/tienda/ignorar", json={"producto": 3}, headers=H)
+    sesion.post("/admin/api/tienda/restaurar", json={"producto": 3}, headers=H)
+
+    assert [(e["accion"], e["producto"]) for e in memoria.filas] == [("ignorado", "River Plate - Titular 26/27"), ("restaurado", "River Plate - Titular 26/27")]
+
+
+def test_se_explica_por_que_cada_modelo_no_entra(sesion):
+    d = sesion.get("/admin/api/tienda/nuevos").json()["no_entran"]
+
+    assert ids(d["sin_foto"]) == [4]
+    assert ids(d["ocultos"]) == [5], "el 2 también está oculto, pero ya está en el mayorista"
+    assert ids(d["sin_control"]) == [6]
+    assert d["sin_categoria"] == []
+
+
+def test_los_modelos_sin_filtro_se_avisan(sesion):
+    sesion.put("/admin/api/tienda/categorias", json={"categorias": [{"id": "boca", "nombre": "Boca", "tiendanube": ["BOCA"]}]}, headers=H)
+
+    d = sesion.get("/admin/api/tienda/nuevos").json()["no_entran"]
+
+    assert ids(d["sin_categoria"]) == [1, 3], "tienen stock o son nuevos y ninguna de sus categorías forma un filtro"
+
+
+def test_la_lista_de_la_tienda_se_guarda_dos_minutos_salvo_que_se_pida_revisar(sesion, tienda):
+    assert ids(sesion.get("/admin/api/tienda/nuevos").json()["nuevos"]) == [3]
+    tienda.productos[7] = tienda._producto(7, "Otro nuevo", True, {"M": 2})
+
+    assert ids(sesion.get("/admin/api/tienda/nuevos").json()["nuevos"]) == [3]
+    assert ids(sesion.get("/admin/api/tienda/nuevos?refrescar=1").json()["nuevos"]) == [7, 3], "ordenados por nombre"
+
+
+def test_los_filtros_arrancan_con_los_de_negocio_json(sesion):
+    d = sesion.get("/admin/api/tienda/categorias").json()
+
+    assert d["categorias"] == FILTROS
+    assert {"nombre": "BOCA", "modelos": 0} in d["disponibles"]
+    assert {"nombre": "FÚTBOL ARGENTINO", "modelos": 4} in d["disponibles"], "los publicados con esa categoría"
+
+
+def test_los_filtros_se_guardan_y_la_web_los_relee(sesion, alm, invalidaciones, memoria):
+    nuevos = [{"id": "boca", "nombre": " Boca  Juniors ", "tiendanube": ["BOCA", "BOCA", " "]}, {"id": "arg", "nombre": "Argentino", "tiendanube": ["FÚTBOL ARGENTINO"]}]
+
+    r = sesion.put("/admin/api/tienda/categorias", json={"categorias": nuevos}, headers=H)
+
+    assert r.status_code == 200 and r.json()["guardadas"] == 2
+    guardadas = sesion.get("/admin/api/tienda/categorias").json()["categorias"]
+    assert guardadas[0] == {"id": "boca", "nombre": "Boca Juniors", "tiendanube": ["BOCA"]}, "limpia espacios y repetidos"
+    assert [c["id"] for c in guardadas] == ["boca", "arg"], "respeta el orden"
+    assert invalidaciones
+    assert memoria.filas[-1]["accion"] == "config"
+
+
+def test_se_pueden_quitar_todos_los_filtros(sesion):
+    sesion.put("/admin/api/tienda/categorias", json={"categorias": []}, headers=H)
+
+    assert sesion.get("/admin/api/tienda/categorias").json()["categorias"] == []
+
+
+@pytest.mark.parametrize(
+    "categorias",
+    [
+        [{"id": "a", "nombre": "Uno", "tiendanube": []}, {"id": "b", "nombre": "uno", "tiendanube": []}],  # mismo nombre
+        [{"id": "a", "nombre": "Uno", "tiendanube": []}, {"id": "a", "nombre": "Dos", "tiendanube": []}],  # mismo id
+        [{"id": "A B", "nombre": "Uno", "tiendanube": []}],  # id con espacios y mayúsculas
+        [{"id": "a", "nombre": "   ", "tiendanube": []}],  # sin nombre
+        [{"id": "a", "nombre": "x" * 41, "tiendanube": []}],
+    ],
+)
+def test_filtros_mal_armados_no_se_guardan(sesion, categorias):
+    r = sesion.put("/admin/api/tienda/categorias", json={"categorias": categorias}, headers=H)
+
+    assert r.status_code == 422
+    assert sesion.get("/admin/api/tienda/categorias").json()["categorias"] == FILTROS
+
+
+def test_los_ignorados_y_los_filtros_exigen_el_header_propio(sesion):
+    assert sesion.post("/admin/api/tienda/ignorar", json={"producto": 3}).status_code == 403
+    assert sesion.put("/admin/api/tienda/categorias", json={"categorias": []}).status_code == 403

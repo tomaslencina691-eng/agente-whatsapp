@@ -12,10 +12,15 @@ aplica entero o no se aplica nada.
   · mayorista_pedidos  lo que arma la gente en la web, con un código (A-7K3QX)
                        que viaja en el mensaje de WhatsApp. Al confirmar un
                        pedido se descuenta el stock; al cancelarlo, se devuelve.
+  · mayorista_ignorados  los modelos de la tienda que la persona decidió no
+                       ofrecer en el mayorista (no vuelven a aparecer como nuevos).
+  · mayorista_config   ajustes que se editan desde el panel (hoy, las categorías
+                       de la web); lo que no está acá rige `negocio.json`.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import threading
 from datetime import datetime, timezone
@@ -42,6 +47,18 @@ CREATE TABLE IF NOT EXISTS mayorista_pedidos (
     actualizado TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS mayorista_pedidos_estado ON mayorista_pedidos (estado, fecha DESC);
+
+CREATE TABLE IF NOT EXISTS mayorista_ignorados (
+    producto_id BIGINT      PRIMARY KEY,
+    nombre      TEXT        NOT NULL,
+    fecha       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS mayorista_config (
+    clave       TEXT        PRIMARY KEY,
+    valor       JSONB       NOT NULL,
+    actualizado TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 """
 
 ESTADOS = ("nuevo", "confirmado", "despachado", "cancelado")
@@ -106,9 +123,33 @@ class AlmacenMemoria:
         self._stock: dict[int, dict] = {}
         self._siguiente = 1
         self._pedidos: dict[str, dict] = {}
+        self._ignorados: dict[int, dict] = {}
+        self._config: dict[str, object] = {}
 
     def preparar(self) -> None:
         pass
+
+    # ignorados y ajustes
+    def ignorar(self, producto: int, nombre: str) -> None:
+        with self._candado:
+            self._ignorados.setdefault(producto, {"producto_id": producto, "nombre": nombre, "fecha": datetime.now(timezone.utc).isoformat()})
+
+    def designorar(self, producto: int) -> None:
+        with self._candado:
+            self._ignorados.pop(producto, None)
+
+    def ignorados(self) -> list[dict]:
+        with self._candado:
+            return [dict(i) for i in sorted(self._ignorados.values(), key=lambda i: i["fecha"], reverse=True)]
+
+    def config(self, clave: str):
+        with self._candado:
+            valor = self._config.get(clave)
+            return json.loads(json.dumps(valor)) if valor is not None else None
+
+    def guardar_config(self, clave: str, valor) -> None:
+        with self._candado:
+            self._config[clave] = json.loads(json.dumps(valor))
 
     # stock
     def vacio(self) -> bool:
@@ -260,6 +301,36 @@ class AlmacenPG:
     def preparar(self) -> None:
         with self._conectar() as c:
             c.execute(CREAR_TABLAS)
+
+    # ignorados y ajustes
+    def ignorar(self, producto: int, nombre: str) -> None:
+        with self._conectar() as c:
+            c.execute("INSERT INTO mayorista_ignorados (producto_id, nombre) VALUES (%s, %s) ON CONFLICT (producto_id) DO NOTHING", (producto, nombre))
+
+    def designorar(self, producto: int) -> None:
+        with self._conectar() as c:
+            c.execute("DELETE FROM mayorista_ignorados WHERE producto_id = %s", (producto,))
+
+    def ignorados(self) -> list[dict]:
+        with self._conectar() as c, c.cursor() as cur:
+            cur.execute("SELECT producto_id, nombre, fecha FROM mayorista_ignorados ORDER BY fecha DESC")
+            return [{"producto_id": f[0], "nombre": f[1], "fecha": f[2].isoformat()} for f in cur.fetchall()]
+
+    def config(self, clave: str):
+        with self._conectar() as c, c.cursor() as cur:
+            cur.execute("SELECT valor FROM mayorista_config WHERE clave = %s", (clave,))
+            f = cur.fetchone()
+            return f[0] if f else None
+
+    def guardar_config(self, clave: str, valor) -> None:
+        from psycopg.types.json import Jsonb
+
+        with self._conectar() as c:
+            c.execute(
+                "INSERT INTO mayorista_config (clave, valor) VALUES (%s, %s) "
+                "ON CONFLICT (clave) DO UPDATE SET valor = EXCLUDED.valor, actualizado = now()",
+                (clave, Jsonb(valor)),
+            )
 
     # stock
     def vacio(self) -> bool:

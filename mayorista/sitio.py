@@ -115,10 +115,31 @@ def nombre_limpio(nombre: str) -> str:
     return re.sub(r"\s{2,}", " ", nombre).strip(" -–")
 
 
+_categorias_cache: dict = {"t": 0.0, "valor": None}
+
+
+def categorias_vigentes() -> list[dict]:
+    """Los filtros de la web: los que se editan en el panel o, si nunca se tocaron, los de negocio.json.
+
+    Se guardan 15 segundos para no ir a la base en cada producto.
+    """
+    if _almacen is None:
+        return CATEGORIAS
+    if _categorias_cache["valor"] is not None and time.time() - _categorias_cache["t"] < 15:
+        return _categorias_cache["valor"]
+    try:
+        guardadas = _almacen.config("categorias")
+    except Exception:  # noqa: BLE001
+        log.warning("No se pudieron leer las categorías de la base: se usan las últimas conocidas.")
+        return _categorias_cache["valor"] if _categorias_cache["valor"] is not None else CATEGORIAS
+    valor = CATEGORIAS if guardadas is None else guardadas
+    _categorias_cache.update(t=time.time(), valor=valor)
+    return valor
+
+
 def categorias_de(producto: dict) -> list[str]:
-    """Los ids de categoría del negocio a los que pertenece (ver negocio.json)."""
-    nombres = {(c.get("name") or {}).get("es") for c in producto.get("categories") or []}
-    return [c["id"] for c in CATEGORIAS if nombres & set(c.get("tiendanube") or [])]
+    """Los ids de categoría del negocio a los que pertenece."""
+    return admin.categorias_del_producto(producto, categorias_vigentes())
 
 
 def version_de(nombre: str) -> str:
@@ -244,8 +265,10 @@ _almacen = almacen.crear()
 
 
 def _invalidar_cache() -> None:
-    """Después de incluir un modelo, la web vuelve a leer Tiendanube ya."""
+    """Después de incluir un modelo o tocar las categorías, la web vuelve a leer todo ya."""
     _cache["t"] = 0.0
+    _categorias_cache["t"] = 0.0
+    _categorias_cache["valor"] = None
 
 
 def _cargar_stock_inicial() -> None:
@@ -273,7 +296,7 @@ async def _vida(_app: FastAPI):
 
 
 app = FastAPI(title="Mayorista", docs_url=None, redoc_url=None, lifespan=_vida)
-app.include_router(admin.crear_router(_historial, _invalidar_cache, _almacen))
+app.include_router(admin.crear_router(_historial, _invalidar_cache, _almacen, CATEGORIAS))
 
 
 @app.middleware("http")
@@ -309,7 +332,7 @@ def api_catalogo(response: Response) -> dict:
         "whatsapp": WHATSAPP,
         "marca": MARCA,
         "tiendaUrl": TIENDA_URL,
-        "categorias": [{"id": c["id"], "nombre": c["nombre"]} for c in CATEGORIAS],
+        "categorias": [{"id": c["id"], "nombre": c["nombre"]} for c in categorias_vigentes()],
         # False: la web no muestra el filtro "Versión jugador / fan" (se deduce del
         # nombre) y usa solo las categorías de la tienda.
         "filtroVersion": NEGOCIO.get("filtroVersion", True) is not False,

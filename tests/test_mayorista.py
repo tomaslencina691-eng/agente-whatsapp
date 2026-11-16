@@ -48,6 +48,7 @@ def cache_limpia():
     servidor._cache.update(t=0.0, productos=None, imagenes={})
     servidor.tn._fotos.clear()
     servidor._intentos.clear()
+    servidor._categorias_cache.update(t=0.0, valor=None)
     yield
 
 
@@ -414,3 +415,63 @@ def test_un_pedido_de_un_modelo_desconocido_se_guarda_con_un_nombre_generico(cli
     cliente.post("/api/pedido", json=pedido_web(items=[{"producto": 77, "talle": "M", "cantidad": 1}]))
 
     assert propio.pedido("A-7K3QX")["datos"]["items"][0]["nombre"] == "Modelo 77"
+
+
+# -- Filtros que se editan en el panel ----------------------------------------------
+
+
+def test_sin_filtros_guardados_rigen_los_de_negocio_json(cliente, monkeypatch, propio):
+    monkeypatch.setattr(servidor, "_traer_productos", lambda: [producto()])
+    propio.cargar([(1, "M", 3)])
+
+    d = cliente.get("/api/catalogo").json()
+
+    assert [c["id"] for c in d["categorias"]] == ["arg", "sel", "int", "retro"]
+    assert d["productos"][0]["cats"] == ["arg"]
+
+
+def test_los_filtros_del_panel_reemplazan_a_los_de_negocio_json(cliente, monkeypatch, propio):
+    monkeypatch.setattr(servidor, "_traer_productos", lambda: [producto()])
+    propio.cargar([(1, "M", 3)])
+    propio.guardar_config("categorias", [{"id": "boca", "nombre": "Boca", "tiendanube": ["BOCA JUNIORS"]}])
+
+    d = cliente.get("/api/catalogo").json()
+
+    assert d["categorias"] == [{"id": "boca", "nombre": "Boca"}]
+    assert d["productos"][0]["cats"] == ["boca"]
+
+
+def test_sin_filtros_la_web_no_ofrece_ninguno(cliente, monkeypatch, propio):
+    monkeypatch.setattr(servidor, "_traer_productos", lambda: [producto()])
+    propio.cargar([(1, "M", 3)])
+    propio.guardar_config("categorias", [])
+
+    d = cliente.get("/api/catalogo").json()
+
+    assert d["categorias"] == [] and d["productos"][0]["cats"] == []
+
+
+def test_un_filtro_cambiado_se_ve_al_invalidar_la_cache(cliente, monkeypatch, propio):
+    monkeypatch.setattr(servidor, "_traer_productos", lambda: [producto()])
+    propio.cargar([(1, "M", 3)])
+    cliente.get("/api/catalogo")
+    propio.guardar_config("categorias", [{"id": "x", "nombre": "Equis", "tiendanube": []}])
+
+    servidor._invalidar_cache()
+
+    assert [c["id"] for c in cliente.get("/api/catalogo").json()["categorias"]] == ["x"]
+
+
+def test_si_la_base_falla_los_filtros_siguen_con_los_ultimos_conocidos(cliente, monkeypatch, propio):
+    monkeypatch.setattr(servidor, "_traer_productos", lambda: [producto()])
+    propio.cargar([(1, "M", 3)])
+    propio.guardar_config("categorias", [{"id": "x", "nombre": "Equis", "tiendanube": []}])
+    cliente.get("/api/catalogo")
+    servidor._categorias_cache["t"] = 0.0  # venció
+
+    def cae(clave):
+        raise OSError("sin base")
+
+    monkeypatch.setattr(propio, "config", cae)
+
+    assert [c["id"] for c in cliente.get("/api/catalogo").json()["categorias"]] == ["x"]

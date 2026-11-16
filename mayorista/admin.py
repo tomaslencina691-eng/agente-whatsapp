@@ -18,6 +18,8 @@ Cómo se protege un guardado:
 from __future__ import annotations
 
 import logging
+import time
+from datetime import datetime, timezone
 from typing import Callable, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -65,6 +67,22 @@ class Incluir(BaseModel):
     copiar_stock: bool = False
 
 
+class UnModelo(BaseModel):
+    producto: int
+
+
+class Categoria(BaseModel):
+    """Un filtro de la web: su nombre y qué categorías de la tienda lo forman."""
+
+    id: str = Field(min_length=1, max_length=30, pattern=r"^[a-z0-9_-]+$")
+    nombre: str = Field(min_length=1, max_length=40)
+    tiendanube: list[str] = Field(default=[], max_length=60)
+
+
+class GuardarCategorias(BaseModel):
+    categorias: list[Categoria] = Field(max_length=20)
+
+
 # -- Ayudantes ----------------------------------------------------------------
 
 
@@ -97,9 +115,19 @@ def vista_de_producto(p: dict | None, id: int, filas: list[dict]) -> dict:
     }
 
 
+def categorias_del_producto(producto: dict, categorias: list[dict]) -> list[str]:
+    """Los ids de los filtros de la web a los que pertenece un modelo, según sus categorías en la tienda."""
+    nombres = {(c.get("name") or {}).get("es") for c in producto.get("categories") or []}
+    return [c["id"] for c in categorias if nombres & set(c.get("tiendanube") or [])]
+
+
+def tiene_stock_contado(p: dict) -> bool:
+    return any(v.get("stock") is not None for v in p.get("variants") or [])
+
+
 def es_elegible(p: dict) -> bool:
     """Un modelo de la tienda que puede estar en el mayorista: publicado, con foto y con stock contado."""
-    return bool(p.get("published") and p.get("images") and any(v.get("stock") is not None for v in p.get("variants") or []))
+    return bool(p.get("published") and p.get("images") and tiene_stock_contado(p))
 
 
 def filas_de_producto(p: dict, copiar_stock: bool) -> list[tuple[int, str, int]]:
@@ -125,9 +153,10 @@ def filas_iniciales(productos: list[dict]) -> list[tuple[int, str, int]]:
 # -- El router ----------------------------------------------------------------
 
 
-def crear_router(historial, invalidar_cache: Callable[[], None], almacen_) -> APIRouter:
+def crear_router(historial, invalidar_cache: Callable[[], None], almacen_, categorias_base: list[dict] | None = None) -> APIRouter:
     router = APIRouter(prefix="/admin/api")
     nombres: dict[int, str] = {}  # los últimos nombres vistos, para el historial
+    tienda: dict = {"t": 0.0, "productos": None}  # lo último que se leyó de la tienda
 
     def configurado() -> bool:
         return acceso.configurado() and historial is not None and almacen_ is not None and tn.configurado()
@@ -192,7 +221,10 @@ def crear_router(historial, invalidar_cache: Callable[[], None], almacen_) -> AP
 
     # -- Stock --
 
-    def _productos_de_la_tienda() -> list[dict]:
+    def _productos_de_la_tienda(guardados: bool = False) -> list[dict]:
+        """Lo que hay en Tiendanube ahora. Con `guardados`, vale lo leído hace menos de 2 minutos."""
+        if guardados and tienda["productos"] is not None and time.time() - tienda["t"] < 120:
+            return tienda["productos"]
         try:
             productos = tn.todos_los_productos()
         except tn.ErrorDeTiendanube as e:
@@ -202,7 +234,12 @@ def crear_router(historial, invalidar_cache: Callable[[], None], almacen_) -> AP
             imagenes = sorted(p.get("images") or [], key=lambda i: i.get("position") or 0)
             if imagenes:
                 _foto_de_producto[p["id"]] = imagenes[0]["src"]
+        tienda.update(t=time.time(), productos=productos)
         return productos
+
+    def _categorias_actuales() -> list[dict]:
+        guardadas = almacen_.config("categorias")
+        return list(categorias_base or []) if guardadas is None else guardadas
 
     @router.get("/stock")
     def stock(usuario: str = Depends(usuario_actual)) -> dict:
@@ -321,18 +358,91 @@ def crear_router(historial, invalidar_cache: Callable[[], None], almacen_) -> AP
     # -- Modelos de la tienda --
 
     @router.get("/tienda/nuevos")
-    def tienda_nuevos(usuario: str = Depends(usuario_actual)) -> dict:
-        """Los modelos de la tienda que todavía no están en el mayorista."""
-        productos = _productos_de_la_tienda()
+    def tienda_nuevos(refrescar: bool = False, usuario: str = Depends(usuario_actual)) -> dict:
+        """Lo que la tienda tiene y el mayorista no, y por qué algunos modelos no pueden entrar."""
+        productos = _productos_de_la_tienda(guardados=not refrescar)
         incluidos = almacen_.incluidos()
-        nuevos = []
+        ignorados = {i["producto_id"]: i for i in almacen_.ignorados()}
+        categorias = _categorias_actuales()
+        nuevos: list[dict] = []
+        no_entran: dict[str, list[dict]] = {"sin_foto": [], "ocultos": [], "sin_control": [], "sin_categoria": []}
         for p in productos:
-            if p["id"] in incluidos or not es_elegible(p):
+            ref = {"id": p["id"], "nombre": _nombre_de(p, p["id"])}
+            if not p.get("published"):
+                if p["id"] not in incluidos and p["id"] not in ignorados:
+                    no_entran["ocultos"].append(ref)
+                continue
+            if not p.get("images"):
+                if p["id"] not in incluidos and p["id"] not in ignorados:
+                    no_entran["sin_foto"].append(ref)
+                continue
+            if not tiene_stock_contado(p):
+                if p["id"] not in incluidos and p["id"] not in ignorados:
+                    no_entran["sin_control"].append(ref)
+                continue
+            if categorias and not categorias_del_producto(p, categorias) and p["id"] not in ignorados:
+                no_entran["sin_categoria"].append(ref)  # entra, pero solo se ve en "Todas"
+            if p["id"] in incluidos or p["id"] in ignorados:
                 continue
             talles = [{"talle": t, "stock": n} for _, t, n in filas_de_producto(p, True)]
-            nuevos.append({"id": p["id"], "nombre": _nombre_de(p, p["id"]), "foto": True, "talles": talles, "unidades": sum(t["stock"] for t in talles)})
+            nuevos.append({**ref, "foto": True, "talles": talles, "unidades": sum(t["stock"] for t in talles)})
         nuevos.sort(key=lambda n: n["nombre"].lower())
-        return {"nuevos": nuevos, "incluidos": len(incluidos), "vacio": not incluidos}
+        return {
+            "nuevos": nuevos,
+            "incluidos": len(incluidos),
+            "vacio": not incluidos,
+            "ignorados": [{"id": i["producto_id"], "nombre": i["nombre"]} for i in ignorados.values()],
+            "no_entran": {k: sorted(v, key=lambda r: r["nombre"].lower()) for k, v in no_entran.items()},
+            "revisado": datetime.fromtimestamp(tienda["t"], timezone.utc).isoformat(),
+        }
+
+    @router.post("/tienda/ignorar")
+    def tienda_ignorar(datos: UnModelo, usuario: str = Depends(usuario_actual)) -> dict:
+        """Un modelo de la tienda que no se quiere ofrecer: deja de aparecer como nuevo."""
+        if datos.producto in almacen_.incluidos():
+            raise HTTPException(409, "Ese modelo ya está en el mayorista: no se puede ignorar.")
+        modelo = nombre(datos.producto)
+        almacen_.ignorar(datos.producto, modelo)
+        anotar(hist.lote_nuevo(), usuario, [{"accion": "ignorado", "producto_id": datos.producto, "producto": modelo, "talle": None, "antes": None, "despues": None}])
+        return {"ignorado": True, "nombre": modelo}
+
+    @router.post("/tienda/restaurar")
+    def tienda_restaurar(datos: UnModelo, usuario: str = Depends(usuario_actual)) -> dict:
+        """Vuelve a considerar un modelo ignorado: reaparece entre los nuevos."""
+        almacen_.designorar(datos.producto)
+        anotar(hist.lote_nuevo(), usuario, [{"accion": "restaurado", "producto_id": datos.producto, "producto": nombre(datos.producto), "talle": None, "antes": None, "despues": None}])
+        return {"restaurado": True}
+
+    @router.get("/tienda/categorias")
+    def tienda_categorias(usuario: str = Depends(usuario_actual)) -> dict:
+        """Los filtros de la web y las categorías de la tienda que se les pueden asignar."""
+        try:
+            de_la_tienda = tn.categorias()
+        except tn.ErrorDeTiendanube as e:
+            raise HTTPException(502, str(e)) from None
+        productos = _productos_de_la_tienda(guardados=True)
+        modelos: dict[str, int] = {}
+        for p in productos:
+            if not p.get("published"):
+                continue
+            for n in {(c.get("name") or {}).get("es") for c in p.get("categories") or []} - {None, ""}:
+                modelos[n] = modelos.get(n, 0) + 1
+        nombres_tn = sorted({(c.get("name") or {}).get("es", "") for c in de_la_tienda} - {""}, key=str.lower)
+        return {"categorias": _categorias_actuales(), "disponibles": [{"nombre": n, "modelos": modelos.get(n, 0)} for n in nombres_tn]}
+
+    @router.put("/tienda/categorias")
+    def tienda_guardar_categorias(datos: GuardarCategorias, usuario: str = Depends(usuario_actual)) -> dict:
+        ids = [c.id for c in datos.categorias]
+        nombres_c = [c.nombre.strip().lower() for c in datos.categorias]
+        if len(set(ids)) != len(ids) or len(set(nombres_c)) != len(nombres_c):
+            raise HTTPException(422, "Hay dos filtros con el mismo nombre.")
+        if any(not c.nombre.strip() for c in datos.categorias):
+            raise HTTPException(422, "Todos los filtros necesitan un nombre.")
+        limpias = [{"id": c.id, "nombre": " ".join(c.nombre.split()), "tiendanube": list(dict.fromkeys(n.strip() for n in c.tiendanube if n.strip()))} for c in datos.categorias]
+        almacen_.guardar_config("categorias", limpias)
+        anotar(hist.lote_nuevo(), usuario, [{"accion": "config", "producto_id": 0, "producto": "Filtros de la web", "talle": ", ".join(c["nombre"] for c in limpias)[:200], "antes": None, "despues": len(limpias)}])
+        invalidar_cache()
+        return {"guardadas": len(limpias)}
 
     @router.post("/tienda/incluir")
     def tienda_incluir(datos: Incluir, usuario: str = Depends(usuario_actual)) -> dict:
@@ -346,6 +456,7 @@ def crear_router(historial, invalidar_cache: Callable[[], None], almacen_) -> AP
             raise HTTPException(409, "Ese modelo ya está en el mayorista.")
         filas = filas_de_producto(p, datos.copiar_stock)
         almacen_.cargar(filas)
+        almacen_.designorar(p["id"])
         modelo = _nombre_de(p, p["id"])
         nombres[p["id"]] = modelo
         anotar(hist.lote_nuevo(), usuario, [{"accion": "incluido", "producto_id": p["id"], "producto": modelo, "talle": ", ".join(t for _, t, _ in filas), "antes": None, "despues": sum(n for _, _, n in filas)}])
