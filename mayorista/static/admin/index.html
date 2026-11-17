@@ -300,7 +300,7 @@ tr.sin-stock .nombre { color: var(--suave); }
       <button class="btn" id="btnDescartar" type="button" disabled>Descartar</button>
       <button class="btn fuerte" id="btnGuardar" type="button" disabled>Guardar cambios</button>
     </div>
-    <p class="ayuda">Escribí en las celdas, o pegá un bloque copiado de Excel. Las celdas en verde son cambios sin guardar. Este stock es solo del mayorista: no cambia el de la tienda. Enter baja a la fila de abajo.</p>
+    <p class="ayuda">Escribí en las celdas, o pegá un bloque copiado de Excel. Las celdas en verde son cambios sin guardar. Con el stock compartido activado, lo que escribas se guarda también en Tiendanube; apagado, es solo del mayorista. Enter baja a la fila de abajo.</p>
     <div class="tabla-caja"><table id="tabla"><thead id="cabeza"></thead><tbody id="cuerpo"></tbody></table></div>
     <div class="vacio" id="cargando">Cargando la planilla...</div>
   </div></section>
@@ -530,6 +530,14 @@ tr.sin-stock .nombre { color: var(--suave); }
           <div class="acciones" style="justify-content:flex-start"><button class="btn fuerte chico" id="cuCredCopiar" type="button">Copiar</button><button class="btn chico" id="cuCredCerrar" type="button">Ya los anoté</button></div>
         </div>
       </form>
+    </div>
+
+    <div class="grupo" id="cuStock" hidden>
+      <b>Stock compartido con Tiendanube</b>
+      <p class="ayuda">Un solo stock: el de Tiendanube. Prendido, la web mayorista, el panel y el agente muestran lo mismo que la tienda online; al confirmar un pedido (pago verificado) se descuenta en Tiendanube, al cancelar uno confirmado se devuelve, y lo que cargues en la planilla o por curva se escribe allá. Una venta de la tienda online se ve en el mayorista en menos de un minuto.</p>
+      <div id="cuStockEstado" class="ayuda">Cargando...</div>
+      <div class="acciones" style="justify-content:flex-start"><button class="btn fuerte" id="cuStockActivar" type="button" hidden>Activar el stock compartido</button><button class="btn" id="cuStockApagar" type="button" hidden>Volver al stock propio</button></div>
+      <div class="mensaje" id="cuStockMsg" role="status"></div>
     </div>
 
     <div class="grupo">
@@ -1313,14 +1321,42 @@ async function cargarCuenta() {
   try { CUENTA = await api("/cuenta"); } catch (e) { $("cuYo").textContent = "No se pudo cargar: " + e.message; return; }
   $("cuYo").textContent = `Entraste como ${CUENTA.usuario} · ${CUENTA.rolNombre}.`;
   $("cuConexiones").innerHTML = CUENTA.conexiones.map((c) => `<div class="lote" style="padding:8px 12px"><header><b>${esc(c.nombre)}</b><span class="etq ${c.estado === "ok" ? "verde" : c.estado === "error" ? "oculto" : ""}">${c.estado === "ok" ? "Conectado" : c.estado === "error" ? "Con problemas" : "Pendiente"}</span></header><div class="detalle"><div>${esc(c.detalle)}</div></div></div>`).join("");
-  $("cuPersonas").hidden = !CUENTA.esDuenio; $("cuAvisos").hidden = !CUENTA.esDuenio;
+  $("cuPersonas").hidden = !CUENTA.esDuenio; $("cuAvisos").hidden = !CUENTA.esDuenio; $("cuStock").hidden = !CUENTA.esDuenio;
   if (!CUENTA.esDuenio) return;
+  cargarStockCompartido();
   pintarRolesAlta();
   pintarPersonas();
   const a = CUENTA.avisos;
   $("avPedido").checked = a.pedidoNuevo; $("avPocas").checked = a.pocasUnidades; $("avUmbral").value = a.umbral; $("avNuevos").checked = a.modelosNuevos; $("avFalla").checked = a.fallasDeLaTienda;
   $("cuAvisosPara").textContent = CUENTA.avisosPara ? `Los avisos llegan a ${CUENTA.avisosPara} (se cambia en la pestaña Agente, «Mail de avisos»).` : "Todavía no hay un mail de avisos: cargalo en la pestaña Agente y conectá el correo del agente.";
 }
+/* stock compartido con Tiendanube */
+let STOCK_COMPARTIDO = null;
+async function cargarStockCompartido() {
+  const caja = $("cuStockEstado"); caja.textContent = "Mirando Tiendanube...";
+  try { STOCK_COMPARTIDO = await api("/stock-compartido"); } catch (e) { caja.textContent = "No se pudo cargar: " + e.message; return; }
+  const d = STOCK_COMPARTIDO, c = d.comparacion;
+  const estado = d.activo ? '<span class="etq verde">Activo</span> Rige el stock de Tiendanube.' : '<span class="etq oculto">Apagado</span> Rige el stock propio del mayorista.';
+  const comp = c ? `<br>El mayorista tiene <b>${c.unidadesPropias}</b> unidades propias en ${c.talles} talles de ${c.modelos} modelos; Tiendanube tiene <b>${c.unidadesTienda}</b>${c.talleDistintos ? ` y en ${c.talleDistintos} talles no coinciden` : " y coinciden"}.` : (d.error ? `<br><span class="falta-stock">${esc(d.error)}</span>` : "");
+  caja.innerHTML = estado + comp;
+  $("cuStockActivar").hidden = d.activo; $("cuStockApagar").hidden = !d.activo;
+}
+$("cuStockActivar").addEventListener("click", async () => {
+  const msg = $("cuStockMsg"), c = (STOCK_COMPARTIDO || {}).comparacion; msg.className = "mensaje"; msg.textContent = "";
+  const resumen = c ? `Hoy el mayorista tiene ${c.unidadesPropias} unidades propias y Tiendanube ${c.unidadesTienda}. Al activar rige el de Tiendanube (el propio queda guardado pero deja de usarse).\n\n` : "";
+  if (!confirm(resumen + "Antes de activar se comprueba que Tiendanube deja escribir el stock (sin cambiar nada). ¿Activar el stock compartido?")) return;
+  $("cuStockActivar").disabled = true; msg.textContent = "Comprobando con Tiendanube...";
+  try { await api("/stock-compartido/activar", { metodo: "POST" }); msg.className = "mensaje ok"; msg.textContent = "Listo: ahora hay un solo stock, el de Tiendanube."; planillaVieja = true; await cargarStockCompartido(); }
+  catch (e) { msg.textContent = e.message; }
+  finally { $("cuStockActivar").disabled = false; }
+});
+$("cuStockApagar").addEventListener("click", async () => {
+  const msg = $("cuStockMsg"); msg.className = "mensaje"; msg.textContent = "";
+  if (!confirm("¿Volver al stock propio del mayorista? Ojo: es el que había guardado antes de activar, puede estar desactualizado.")) return;
+  try { await api("/stock-compartido/desactivar", { metodo: "POST" }); msg.className = "mensaje ok"; msg.textContent = "Listo: vuelve a regir el stock propio."; planillaVieja = true; await cargarStockCompartido(); }
+  catch (e) { msg.textContent = e.message; }
+});
+
 /* Qué ve cada rol, en cristiano, para elegir sin dudar. */
 const ROL_DESC = { todo: "Stock, pedidos, tienda, web y agente. No puede sumar ni quitar personas.", stock_web: "Stock, pedidos, tienda y la web mayorista. Sin el agente.", stock: "Solo la planilla de stock, los pedidos y el historial." };
 function pintarRolesAlta() {

@@ -50,6 +50,7 @@ import almacen
 import avisos
 import historial as hist
 import precios
+import stock_tn
 import tn
 
 log = logging.getLogger("mayorista")
@@ -313,7 +314,7 @@ def precio_unidad(unidades: int) -> int | None:
 # -- La app -------------------------------------------------------------------
 
 _historial = hist.crear()
-_almacen = almacen.crear()
+_almacen = stock_tn.AlmacenConTiendanube(_base) if (_base := almacen.crear()) is not None else None
 _agente = agente_cliente.crear()
 # Los mails de aviso (un pedido nuevo, pocas unidades...): se los pide al agente, que tiene el correo.
 _avisador = avisos.Avisador(_almacen, _agente)

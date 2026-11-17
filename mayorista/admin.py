@@ -443,8 +443,13 @@ def crear_router(
 
         try:
             nuevos = almacen_.aplicar(stocks, altas)
-        except almacen.Conflicto:
-            raise HTTPException(409, detail={"mensaje": "No se guardó nada: el stock cambió justo ahora. Recargá la planilla.", "conflictos": []}) from None
+        except almacen.ErrorDeTienda as e:
+            raise HTTPException(502, detail={"mensaje": str(e), "conflictos": []}) from None
+        except almacen.Conflicto as e:
+            detalle = str(e)
+            # Los avisos con nombre propio (un talle que no existe en Tiendanube) se muestran tal cual.
+            mensaje = f"No se guardó nada: {detalle}" if "Tiendanube" in detalle else "No se guardó nada: el stock cambió justo ahora. Recargá la planilla."
+            raise HTTPException(409, detail={"mensaje": mensaje, "conflictos": []}) from None
 
         # A cada talle nuevo se le anota el id de su fila, para poder deshacerlo.
         ids_nuevos = iter(nuevos)
@@ -480,6 +485,51 @@ def crear_router(
         resultado = _aplicar(usuario, cambios)
         historial.marcar_deshecho(lote)
         return resultado
+
+    # -- Stock compartido con Tiendanube (ver stock_tn.py) --
+
+    def _compartido() -> object:
+        if not hasattr(almacen_, "fijar_activo"):
+            raise HTTPException(503, "El stock compartido no está disponible en este servidor.")
+        return almacen_
+
+    @router.get("/stock-compartido")
+    def compartido_ver(usuario: str = Depends(usuario_actual)) -> dict:
+        a = _compartido()
+        salida: dict = {"activo": a.activo()}
+        try:
+            salida["comparacion"] = a.comparar()
+        except almacen.ErrorDeTienda as e:
+            salida["error"] = str(e)
+        return salida
+
+    @router.post("/stock-compartido/activar")
+    def compartido_activar(usuario: str = Depends(usuario_actual)) -> dict:
+        """Prende el stock compartido. Antes comprueba que Tiendanube deja escribir (sin cambiar nada)."""
+        a = _compartido()
+        if a.activo():
+            return {"activo": True, "yaEstaba": True}
+        try:
+            comparacion = a.comparar()
+            a.probar_escritura()
+        except almacen.ErrorDeTienda as e:
+            raise HTTPException(
+                422,
+                f"No se activó: {e} Revisá que la app de Tiendanube tenga el permiso «Escribir productos» y que el token del servidor sea el nuevo.",
+            ) from None
+        a.fijar_activo(True)
+        invalidar_cache()
+        anotar(hist.lote_nuevo(), usuario, [{"accion": "config", "producto_id": 0, "producto": "Stock compartido con Tiendanube", "talle": "activado", "antes": comparacion["unidadesPropias"], "despues": comparacion["unidadesTienda"]}])
+        return {"activo": True, "comparacion": comparacion}
+
+    @router.post("/stock-compartido/desactivar")
+    def compartido_desactivar(usuario: str = Depends(usuario_actual)) -> dict:
+        """Vuelve al stock propio del mayorista (el último que tenía guardado)."""
+        a = _compartido()
+        a.fijar_activo(False)
+        invalidar_cache()
+        anotar(hist.lote_nuevo(), usuario, [{"accion": "config", "producto_id": 0, "producto": "Stock compartido con Tiendanube", "talle": "desactivado", "antes": None, "despues": None}])
+        return {"activo": False}
 
     # -- Modelos de la tienda --
 
@@ -944,6 +994,8 @@ def crear_router(
         ]
 
     def _error_de_pedido(e: almacen.ErrorDeAlmacen) -> HTTPException:
+        if isinstance(e, almacen.ErrorDeTienda):
+            return HTTPException(502, detail={"mensaje": str(e), "conflictos": []})
         if isinstance(e, almacen.PedidoNoExiste):
             return HTTPException(404, str(e))
         if isinstance(e, almacen.FaltaStock):

@@ -300,3 +300,35 @@ def test_en_produccion_sin_base_no_se_cae_al_stock_de_la_tienda(monkeypatch):
 
     with pytest.raises(RuntimeError, match="POSTGRES_DSN"):
         herramientas._stock_mayorista()
+
+
+# -- Stock compartido con Tiendanube ---------------------------------------------------
+
+
+def test_con_el_stock_compartido_las_cantidades_salen_de_tiendanube(monkeypatch):
+    monkeypatch.setattr(herramientas, "_leer_mayorista", lambda: ({1: {"L": 99}, 2: {"M": 5}}, True))  # la base tiene números viejos
+    monkeypatch.setattr(herramientas, "_catalogo_completo", lambda: [camiseta(1, "Barcelona", stock_tienda=3), camiseta(3, "No está en el mayorista", stock_tienda=8)])
+
+    stock = herramientas._stock_mayorista()
+
+    assert stock == {1: {"L": 3}, 2: {}}, "solo los modelos del mayorista; el que no está en la tienda queda sin talles"
+
+
+def test_con_el_stock_compartido_una_variante_sin_stock_contado_no_se_ofrece(monkeypatch):
+    p = camiseta(1, "Boca", stock_tienda=2)
+    p["variants"].append({"price": "1", "stock": None, "values": [{"es": "XL"}]})
+    monkeypatch.setattr(herramientas, "_leer_mayorista", lambda: ({1: {"L": 1}}, True))
+    monkeypatch.setattr(herramientas, "_catalogo_completo", lambda: [p])
+
+    assert herramientas._stock_mayorista() == {1: {"L": 2}}
+
+
+def test_sin_el_stock_compartido_rige_el_de_la_base_y_no_se_consulta_tiendanube(monkeypatch):
+    monkeypatch.setattr(herramientas, "_leer_mayorista", lambda: ({1: {"L": 4}}, False))
+
+    def no_deberia_llamarse():
+        raise AssertionError("no hay que leer Tiendanube")
+
+    monkeypatch.setattr(herramientas, "_catalogo_completo", no_deberia_llamarse)
+
+    assert herramientas._stock_mayorista() == {1: {"L": 4}}

@@ -1,9 +1,10 @@
-"""El cliente de Tiendanube: solo lectura.
+"""El cliente de Tiendanube.
 
 Tiendanube aporta el nombre, las fotos, las categorías y los talles de cada
-modelo. El stock del mayorista NO sale de acá: es propio (ver almacen.py), y
-a Tiendanube no se le escribe nada, así que la app alcanza con permisos de
-lectura. Habla la API con `urllib`, como el resto del proyecto.
+modelo. Por defecto es solo lectura y el stock del mayorista es propio (ver
+almacen.py). Con el «stock compartido» activado (ver stock_tn.py) también se
+escribe el stock de las variantes, y entonces la app necesita el permiso de
+escribir productos. Habla la API con `urllib`, como el resto del proyecto.
 """
 
 from __future__ import annotations
@@ -98,6 +99,32 @@ def productos_por_id(ids: list[int]) -> dict[int, dict]:
 
 def categorias() -> list[dict]:
     return pedir("GET", "/categories?per_page=200")
+
+
+# -- Escribir el stock (solo con el stock compartido) -----------------------------
+
+
+def _cambiar_stock(producto: int, variante: int, accion: str, valor: int) -> int:
+    """Cambia el stock de UNA variante y devuelve el que quedó. `accion` es "replace" o "variation".
+
+    Con "variation" Tiendanube suma o resta en su lado (no pisa una venta que entró en el medio).
+    Ojo: si se resta más de lo que hay, Tiendanube no da error: deja el stock en 0.
+    """
+    actualizadas = pedir("POST", f"/products/{producto}/variants/stock", {"action": accion, "value": valor, "id": variante})
+    for v in actualizadas if isinstance(actualizadas, list) else []:
+        if v.get("id") == variante:
+            return int(v["stock"]) if v.get("stock") is not None else 0
+    raise ErrorDeTiendanube(f"Tiendanube no devolvió la variante {variante} del modelo {producto} después de cambiar el stock.")
+
+
+def ajustar_stock(producto: int, variante: int, cambio: int) -> int:
+    """Suma (o resta, si es negativo) unidades al stock de una variante. Devuelve el stock que quedó."""
+    return _cambiar_stock(producto, variante, "variation", cambio)
+
+
+def fijar_stock(producto: int, variante: int, cantidad: int) -> int:
+    """Deja el stock de una variante en `cantidad`. Devuelve el stock que quedó."""
+    return _cambiar_stock(producto, variante, "replace", cantidad)
 
 
 # -- Fotos --------------------------------------------------------------------

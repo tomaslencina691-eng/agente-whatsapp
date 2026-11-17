@@ -105,6 +105,10 @@ class PedidoNoSePuede(ErrorDeAlmacen):
     """El pedido está en un estado que no admite esa acción."""
 
 
+class ErrorDeTienda(ErrorDeAlmacen):
+    """Tiendanube no dejó leer o cambiar el stock (con el stock compartido, ver stock_tn.py)."""
+
+
 class FaltaStock(ErrorDeAlmacen):
     """No alcanza la mercadería para confirmar el pedido. `faltantes` dice qué."""
 
@@ -369,6 +373,23 @@ class AlmacenMemoria:
             if p["estado"] != "confirmado":
                 raise PedidoNoSePuede(f"El pedido está {p['estado']}: solo se despacha uno confirmado.")
             p["estado"] = "despachado"
+
+    def reclamar(self, codigo: str, desde: tuple[str, ...], a: str) -> tuple[str, dict]:
+        """Pasa el pedido de uno de los estados `desde` a `a` en un solo paso y devuelve (estado anterior, datos).
+
+        Es lo que impide que dos personas confirmen el mismo pedido a la vez cuando el stock vive afuera.
+        """
+        with self._candado:
+            p = self._existente(codigo)
+            anterior = p["estado"]
+            if anterior not in desde:
+                raise PedidoNoSePuede(f"El pedido está {anterior}.")
+            p["estado"] = a
+            return anterior, json.loads(json.dumps(p["datos"]))
+
+    def fijar_estado(self, codigo: str, estado: str) -> None:
+        with self._candado:
+            self._existente(codigo)["estado"] = estado
 
 
 # -- Postgres -----------------------------------------------------------------
@@ -664,6 +685,22 @@ class AlmacenPG:
             if estado != "confirmado":
                 raise PedidoNoSePuede(f"El pedido está {estado}: solo se despacha uno confirmado.")
             cur.execute("UPDATE mayorista_pedidos SET estado = 'despachado', actualizado = now() WHERE codigo = %s", (codigo,))
+
+    def reclamar(self, codigo: str, desde: tuple[str, ...], a: str) -> tuple[str, dict]:
+        """Pasa el pedido de uno de los estados `desde` a `a` en un solo paso y devuelve (estado anterior, datos).
+
+        Es lo que impide que dos personas confirmen el mismo pedido a la vez cuando el stock vive afuera.
+        """
+        with self._conectar() as c, c.cursor() as cur:
+            estado, datos = self._bloquear(cur, codigo)
+            if estado not in desde:
+                raise PedidoNoSePuede(f"El pedido está {estado}.")
+            cur.execute("UPDATE mayorista_pedidos SET estado = %s, actualizado = now() WHERE codigo = %s", (a, codigo))
+            return estado, datos
+
+    def fijar_estado(self, codigo: str, estado: str) -> None:
+        with self._conectar() as c:
+            c.execute("UPDATE mayorista_pedidos SET estado = %s, actualizado = now() WHERE codigo = %s", (estado, codigo))
 
 
 def crear() -> AlmacenPG | None:

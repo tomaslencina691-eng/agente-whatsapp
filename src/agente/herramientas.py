@@ -473,12 +473,15 @@ def _catalogo_completo() -> list[dict]:
 ORDEN_DE_TALLES = ["XS", "S", "M", "L", "XL", "XXL", "XXXL"]
 
 
-def _stock_mayorista() -> dict[int, dict[str, int]] | None:
-    """{modelo: {talle: cantidad}} del mayorista, o None si no hay base (desarrollo)."""
+def _leer_mayorista() -> tuple[dict[int, dict[str, int]], bool] | None:
+    """Lo que dice la base del mayorista: ({modelo: {talle: cantidad}}, ¿el stock se comparte con Tiendanube?).
+
+    None si no hay base (desarrollo).
+    """
     dsn = os.getenv("POSTGRES_DSN", "").strip()
     if not dsn:
         if os.getenv("MODO", "").strip().lower() == "produccion":
-            # En producción el stock es solo el del mayorista: si no hay base, no se cae
+            # En producción el stock es el del mayorista: si no hay base, no se cae
             # al de la tienda online (que no es el que se vende), se avisa del problema.
             raise RuntimeError("falta POSTGRES_DSN: no se puede leer el stock del mayorista")
         return None
@@ -489,7 +492,36 @@ def _stock_mayorista() -> dict[int, dict[str, int]] | None:
         salida: dict[int, dict[str, int]] = {}
         for producto, talle, cantidad in cursor.fetchall():
             salida.setdefault(producto, {})[talle] = cantidad
+        cursor.execute("SELECT valor FROM mayorista_config WHERE clave = 'stock'")
+        fila = cursor.fetchone()
+    compartido = bool(fila and isinstance(fila[0], dict) and fila[0].get("enTiendanube"))
+    return salida, compartido
+
+
+def _stock_de_tiendanube(modelos: set[int]) -> dict[int, dict[str, int]]:
+    """El stock de esos modelos tal como está en Tiendanube: una variante con stock contado por talle."""
+    por_id = {p.get("id"): p for p in _catalogo_completo()}
+    salida: dict[int, dict[str, int]] = {}
+    for modelo in modelos:
+        talles: dict[str, int] = {}
+        for variante in (por_id.get(modelo) or {}).get("variants") or []:
+            if variante.get("stock") is not None:
+                talles[" ".join(_talle(variante).split())] = max(0, int(variante["stock"]))
+        salida[modelo] = talles
     return salida
+
+
+def _stock_mayorista() -> dict[int, dict[str, int]] | None:
+    """{modelo: {talle: cantidad}} del mayorista, o None si no hay base (desarrollo).
+
+    Con el stock compartido activado (se prende desde el panel del mayorista) las
+    cantidades salen de Tiendanube; la base solo dice qué modelos ofrece el mayorista.
+    """
+    leido = _leer_mayorista()
+    if leido is None:
+        return None
+    propio, compartido = leido
+    return _stock_de_tiendanube(set(propio)) if compartido else propio
 
 
 def _tiene_stock(producto: dict, stock: dict[int, dict[str, int]] | None) -> bool:
