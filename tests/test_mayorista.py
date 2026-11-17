@@ -848,3 +848,59 @@ def test_un_modelo_ignorado_o_incluido_no_cuenta_como_nuevo(monkeypatch, propio,
     servidor._revisar_modelos_nuevos()
 
     assert con_avisos.avisos == []
+
+
+# -- Parche y número, datos de envío y cómo pagar -----------------------------------
+
+LINEA_TOP_PERS = {"id": "top_pers", "nombre": "Top Quality con parche y número", "cats": [], "personalizadaDe": "top", "minimo": 6, "tramos": [{"desde": 6, "precio": 45000}, {"desde": 12, "precio": 42000}]}
+
+
+def test_las_camisetas_con_parche_y_numero_se_cobran_en_su_propia_linea(cliente, con_lineas):
+    guardar_web(con_lineas, lineas=[LINEA_TOP, LINEA_TOP_PERS, LINEA_G5], tramos=[])
+    cliente.get("/api/catalogo")
+    items = [{"producto": 2, "talle": "M", "cantidad": 6}, {"producto": 2, "talle": "M", "cantidad": 6, "pers": True}]
+
+    cliente.post("/api/pedido", json=pedido_web(items=items))
+
+    p = con_lineas.pedido("A-7K3QX")
+    assert p["total"] == 6 * 35000 + 6 * 45000
+    assert [bool(i.get("pers")) for i in p["datos"]["items"]] == [False, True]
+
+
+def test_la_web_recibe_la_variante_con_parche_y_numero(cliente, con_lineas):
+    guardar_web(con_lineas, lineas=[LINEA_TOP, LINEA_TOP_PERS, LINEA_G5], tramos=[])
+
+    lineas = {l["id"]: l for l in cliente.get("/api/catalogo").json()["lineas"]}
+
+    assert lineas["top_pers"]["personalizadaDe"] == "top" and lineas["top_pers"]["cats"] == []
+
+
+def test_el_pedido_guarda_los_datos_de_envio_y_el_panel_los_ve(cliente, propio):
+    envio = {"dni": " 30123456 ", "provincia": "Santa Fe", "ciudad": "Rosario", "cp": "2000", "direccion": "Mitre 123", "email": "pablo@correo.com", "transporte": "Vía Cargo"}
+
+    cliente.post("/api/pedido", json=pedido_web(envio=envio))
+
+    assert propio.pedido("A-7K3QX")["datos"]["envio"] == {**envio, "dni": "30123456"}
+
+
+def test_un_pedido_sin_datos_de_envio_se_guarda_igual(cliente, propio):
+    cliente.post("/api/pedido", json=pedido_web())
+
+    assert "envio" not in propio.pedido("A-7K3QX")["datos"]
+
+
+def test_la_web_sabe_si_pide_envio_y_como_se_paga(cliente, monkeypatch, propio):
+    monkeypatch.setattr(servidor, "_traer_productos", lambda: [producto()])
+    d = cliente.get("/api/catalogo").json()
+
+    assert d["pedirEnvio"] is True
+    assert "comprobante" in d["pago"]
+
+
+def test_se_puede_dejar_de_pedir_el_envio_y_cambiar_el_texto_de_pago(cliente, monkeypatch, propio):
+    monkeypatch.setattr(servidor, "_traer_productos", lambda: [producto()])
+    guardar_web(propio, pedirEnvio=False, pago="Alias SF.MAYORISTA")
+
+    d = cliente.get("/api/catalogo").json()
+
+    assert (d["pedirEnvio"], d["pago"]) == (False, "Alias SF.MAYORISTA")

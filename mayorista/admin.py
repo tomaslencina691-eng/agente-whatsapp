@@ -234,7 +234,7 @@ def filas_iniciales(productos: list[dict]) -> list[tuple[int, str, int]]:
 
 ETIQUETAS_DE_AJUSTES = {
     "marca": "nombre", "bandaIzq": "banda", "bandaDer": "banda", "titulo": "título", "bajada": "texto de portada", "color": "color",
-    "whatsapp": "WhatsApp", "mensaje": "mensaje del pedido", "minimo": "pedido mínimo", "tramos": "precios", "lineas": "precios por línea", "pausa": "pausa de pedidos",
+    "whatsapp": "WhatsApp", "whatsappAlterno": "WhatsApp alternativo", "pedirEnvio": "datos de envío", "pago": "cómo pagar", "mensaje": "mensaje del pedido", "minimo": "pedido mínimo", "tramos": "precios", "lineas": "precios por línea", "pausa": "pausa de pedidos",
     "aviso": "aviso", "limitarStock": "límite de stock", "filtroVersion": "filtro de versión", "mostrarUnidades": "unidades que quedan",
     "ocultarPrecios": "precios ocultos", "orden": "orden", "reglas": "reglas", "condiciones": "condiciones", "cierre": "cierre", "pie": "pie",
     "horario": "horario", "instagram": "Instagram", "tiendaUrl": "enlace a la tienda", "seoTitulo": "título en Google", "seoDescripcion": "descripción en Google",
@@ -918,7 +918,7 @@ def crear_router(
         return {
             "codigo": p["codigo"], "fecha": p["fecha"], "estado": p["estado"], "unidades": p["unidades"], "total": p["total"],
             "nombre": datos.get("nombre", ""), "negocio": datos.get("negocio", ""), "notas": datos.get("notas", ""),
-            "items": items, "falta": falta,
+            "envio": datos.get("envio") or {}, "items": items, "falta": falta,
         }
 
     @router.get("/pedidos")
@@ -932,7 +932,7 @@ def crear_router(
         for p in lista:
             for i in p["datos"]["items"]:
                 nombres.setdefault(i["producto"], i.get("nombre") or "")
-        return {"pedidos": [_vista_de_pedido(p, stock_actual) for p in lista], "cuenta": almacen_.cuenta_por_estado()}
+        return {"pedidos": [_vista_de_pedido(p, stock_actual) for p in lista], "cuenta": almacen_.cuenta_por_estado(), "whatsapp": _web_actual().get("whatsapp", "")}
 
     def _movimientos(codigo: str, accion: str, movs: list[dict]) -> list[dict]:
         pedido = almacen_.pedido(codigo)

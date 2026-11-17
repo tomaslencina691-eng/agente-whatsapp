@@ -28,6 +28,8 @@ Negocio / ciudad: {negocio}
 
 {pedido}
 
+{envio}
+
 Total: {unidades}
 Precio por unidad: {precio}
 Total: {total}
@@ -36,7 +38,12 @@ Notas: {notas}
 
 {condiciones}"""
 
-DATOS_DEL_MENSAJE = ("marca", "codigo", "nombre", "negocio", "pedido", "unidades", "precio", "total", "notas", "condiciones")
+DATOS_DEL_MENSAJE = ("marca", "codigo", "nombre", "negocio", "pedido", "envio", "unidades", "precio", "total", "notas", "condiciones")
+
+PAGO_POR_DEFECTO = (
+    "Pagás por transferencia. El stock se descuenta recién cuando el equipo verifica el pago, así que apenas envíes el pedido "
+    "mandá el comprobante por el mismo chat de WhatsApp, a continuación."
+)
 
 BAJADA_POR_DEFECTO = "Camisetas importadas de clubes y selecciones. Elegí los modelos y los talles, armá tu pedido y mandalo por WhatsApp. Lo que ves es lo que llega."
 
@@ -79,6 +86,12 @@ class AjustesWeb(BaseModel):
     bajada: str = Field(default="", max_length=200)
     color: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
     whatsapp: str = Field(pattern=r"^\d{10,15}$")
+    # Un segundo número guardado para intercambiarlo con el activo desde el panel (puede quedar vacío).
+    whatsappAlterno: str = Field(default="", pattern=r"^(\d{10,15})?$")
+    # La web pide los datos de envío y despacho antes de poder enviar el pedido.
+    pedirEnvio: bool = True
+    # Cómo se paga (alias, cuándo se descuenta el stock, que hay que mandar el comprobante): se muestra en el carrito.
+    pago: str = Field(default="", max_length=600)
     mensaje: str = Field(min_length=1, max_length=1500)
     minimo: int = Field(ge=1, le=9999)
     tramos: list[Tramo] = Field(default=[], max_length=10)
@@ -147,6 +160,9 @@ def por_defecto(negocio: dict, marca: str, whatsapp: str, tienda_url: str, limit
         "bajada": BAJADA_POR_DEFECTO,
         "color": "#1fd65f",
         "whatsapp": whatsapp,
+        "whatsappAlterno": re.sub(r"\D", "", str(negocio.get("whatsappAlterno") or "")),
+        "pedirEnvio": negocio.get("pedirEnvio", True) is not False,
+        "pago": negocio.get("pago") or PAGO_POR_DEFECTO,
         "mensaje": MENSAJE_POR_DEFECTO,
         "minimo": minimo,
         "tramos": sorted(({"desde": t["desde"], "precio": t["precio"]} for t in tramos), key=lambda t: t["desde"]),

@@ -168,6 +168,7 @@ tr.sin-stock .nombre { color: var(--suave); }
 .lote header { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
 .lote header b { font-size: 15px; }
 .lote .detalle { display: grid; gap: 2px; color: var(--suave); font-size: 13px; }
+.lote .despacho { background: var(--fondo-2, rgba(255,255,255,.04)); border-radius: 8px; padding: 6px 8px; color: var(--texto, inherit); }
 .lote .deshecho { color: var(--suave); font-style: italic; }
 .flecha { color: var(--mostaza-claro); font-weight: 800; }
 .falta-stock { color: var(--error); font-weight: 700; }
@@ -251,6 +252,7 @@ tr.sin-stock .nombre { color: var(--suave); }
   <section id="pestanaPedidos" hidden><div class="wrap"><div class="panel" style="max-width:900px">
     <h2>Pedidos de la web</h2>
     <p class="ayuda">Cada pedido que arma un cliente en la web queda acá con su código, que viaja en el mensaje de WhatsApp. Al confirmarlo se descuenta el stock; si lo cancelás después, se devuelve.</p>
+    <p class="ayuda" id="numeroActivo"></p>
     <div class="herramientas" style="padding-block:0">
       <select id="estadoPedidos" aria-label="Estado del pedido">
         <option value="nuevo">Por confirmar</option><option value="confirmado">Confirmados</option><option value="despachado">Despachados</option><option value="cancelado">Cancelados</option><option value="todos">Todos</option>
@@ -315,6 +317,11 @@ tr.sin-stock .nombre { color: var(--suave); }
 
       <details class="bloque" open><summary>Pedidos y precios</summary><div class="cuerpo">
         <div class="campo"><label for="wWhatsapp">WhatsApp que recibe los pedidos</label><input id="wWhatsapp" data-w="whatsapp" inputmode="numeric" autocomplete="off"><span class="ayuda" id="wWhatsappAyuda"></span></div>
+        <div class="campo"><label for="wWhatsappAlterno">Otro número guardado (para alternar)</label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap"><input id="wWhatsappAlterno" data-w="whatsappAlterno" inputmode="numeric" autocomplete="off" style="flex:1 1 220px"><button class="btn chico" id="wIntercambiar" type="button">Intercambiar con el activo</button></div>
+          <span class="ayuda" id="wAlternoAyuda">Guardá acá el segundo número y tocá «Intercambiar» cuando quieras que los pedidos lleguen a ese. Después apretá «Guardar y publicar».</span></div>
+        <label class="opcion"><input type="checkbox" id="wPedirEnvio" data-w="pedirEnvio"><span><b>Pedir los datos de envío en la web</b><small>DNI, provincia, ciudad, código postal, dirección, correo y Vía Cargo o Correo Argentino. Sin completarlos no se puede enviar el pedido.</small></span></label>
+        <div class="campo"><label for="wPago">Cómo pagar (se muestra en el carrito)</label><textarea id="wPago" data-w="pago" rows="3" maxlength="600" placeholder="Ej: Transferí al alias SIMPLEMENTE.FUTBOL a nombre de ... y mandá el comprobante por WhatsApp a continuación."></textarea><span class="ayuda">Poné el alias y explicá que el stock se descuenta recién cuando se verifica el pago y que hay que mandar el comprobante después del pedido.</span></div>
         <div class="campo"><label for="wMensaje">Mensaje del pedido</label><textarea id="wMensaje" data-w="mensaje" rows="9" maxlength="1500" style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px"></textarea>
           <span class="ayuda">Tocá un dato para sumarlo. Si una persona no completa un dato, esa línea no se manda. {pedido} es obligatorio.</span>
           <div class="chips-datos" id="wDatos"></div>
@@ -811,7 +818,9 @@ $("listaHistorial").addEventListener("click", async (e) => {
 });
 
 /* ---------- pedidos ---------- */
-const ESTADO_PEDIDO = { nuevo: ["Por confirmar", ""], confirmado: ["Confirmado", "verde"], despachado: ["Despachado", "verde"], cancelado: ["Cancelado", "oculto"] };
+/* 549 + 4 de área + 6 = línea argentina de celular: se muestra como +54 9 3562 51-4675. */
+const verTel = (n) => { const m = String(n || "").match(/^549(\d{4})(\d{2})(\d{4})$/); return m ? `+54 9 ${m[1]} ${m[2]}-${m[3]}` : (n ? "+" + n : "sin número"); };
+const ESTADO_PEDIDO = { nuevo: ["Sin pagar · por verificar", ""], confirmado: ["Pagado · stock descontado", "verde"], despachado: ["Despachado", "verde"], cancelado: ["Cancelado", "oculto"] };
 const dinero = (n) => "$" + Number(n).toLocaleString("es-AR");
 async function contarPedidos() {
   try {
@@ -823,6 +832,7 @@ async function cargarPedidos(silencioso = false) {
   const caja = $("listaPedidos"); if (!silencioso) caja.innerHTML = '<p class="ayuda">Cargando...</p>';
   try {
     const d = await api("/pedidos?estado=" + $("estadoPedidos").value);
+    $("numeroActivo").innerHTML = `Los pedidos de la web salen al WhatsApp <b>${esc(verTel(d.whatsapp))}</b>. Para usar el otro número, cambialo en «Web mayorista» (botón «Intercambiar»).`;
     $("cuentaPedidos").textContent = `${d.pedidos.length} ${d.pedidos.length === 1 ? "pedido" : "pedidos"}`;
     const nuevos = d.cuenta.nuevo || 0, c = $("contadorPedidos"); c.textContent = nuevos; c.hidden = nuevos === 0;
     caja.innerHTML = d.pedidos.length ? d.pedidos.map(tarjetaPedido).join("") : '<p class="ayuda">No hay pedidos en esta lista.</p>';
@@ -833,16 +843,17 @@ function tarjetaPedido(p) {
   const lineas = p.items.map((i) => { const corto = p.estado === "nuevo" && i.hay < i.cantidad;
     return `<div>${esc(i.nombre)}${i.pers ? " <b>(con parche y número)</b>" : ""} · <b>${esc(i.talle)}</b>: pidió ${i.cantidad}${p.estado === "nuevo" ? ` · hay ${i.hay}` : ""}${corto ? ' <span class="falta-stock">(no alcanza)</span>' : ""}</div>`; }).join("");
   const quien = [p.nombre, p.negocio].filter(Boolean).map(esc).join(" · ");
-  const botones = (p.estado === "nuevo" ? `<button class="btn fuerte chico" data-confirmar="${esc(p.codigo)}" ${p.falta ? "disabled title=\"No alcanza el stock\"" : ""}>Confirmar y descontar stock</button><button class="btn chico" data-cancelar="${esc(p.codigo)}">Cancelar</button>` : "")
+  const e = p.envio || {}, despacho = [e.dni && `DNI ${e.dni}`, [e.ciudad, e.provincia].filter(Boolean).join(", "), e.cp && `CP ${e.cp}`, e.direccion, e.email, e.transporte && `Por ${e.transporte}`].filter(Boolean).map(esc);
+  const botones = (p.estado === "nuevo" ? `<button class="btn fuerte chico" data-confirmar="${esc(p.codigo)}" ${p.falta ? "disabled title=\"No alcanza el stock\"" : ""}>Confirmar pago y descontar stock</button><button class="btn chico" data-cancelar="${esc(p.codigo)}">Cancelar</button>` : "")
     + (p.estado === "confirmado" ? `<button class="btn fuerte chico" data-despachar="${esc(p.codigo)}">Marcar como despachado</button><button class="btn chico" data-cancelar="${esc(p.codigo)}">Cancelar y devolver el stock</button>` : "");
   return `<article class="lote"><header><b>${esc(p.codigo)}</b><span class="etq ${clase}">${et}</span><span>${esc(f)}</span><span>${p.unidades} ${p.unidades === 1 ? "camiseta" : "camisetas"}${p.total ? " · ~" + dinero(p.total) : ""}</span><span class="espacio"></span>${botones}</header>
-    <div class="detalle">${quien ? `<div>${quien}</div>` : ""}${lineas}${p.notas ? `<div>Notas: ${esc(p.notas)}</div>` : ""}${p.falta ? '<div class="falta-stock">No alcanza el stock para confirmar. Hablalo con el cliente o cargá el stock en la planilla.</div>' : ""}</div></article>`;
+    <div class="detalle">${quien ? `<div><b>${quien}</b></div>` : ""}${despacho.length ? `<div class="despacho"><b>Despacho:</b> ${despacho.join(" · ")}</div>` : '<div class="falta-stock">Sin datos de envío: pedíselos al cliente por WhatsApp.</div>'}${lineas}${p.notas ? `<div>Notas: ${esc(p.notas)}</div>` : ""}${p.falta ? '<div class="falta-stock">No alcanza el stock para confirmar. Hablalo con el cliente o cargá el stock en la planilla.</div>' : ""}</div></article>`;
 }
 $("estadoPedidos").addEventListener("change", () => cargarPedidos());
 $("listaPedidos").addEventListener("click", async (e) => {
   const b = e.target.closest("[data-confirmar],[data-cancelar],[data-despachar]"); if (!b) return;
   const codigo = b.dataset.confirmar || b.dataset.cancelar || b.dataset.despachar, accion = b.dataset.confirmar ? "confirmar" : b.dataset.cancelar ? "cancelar" : "despachar";
-  if (accion === "confirmar" && !confirm(`¿Confirmar el pedido ${codigo}? Se descuenta el stock.`)) return;
+  if (accion === "confirmar" && !confirm(`¿Confirmar el pago del pedido ${codigo}? Se descuenta el stock.`)) return;
   if (accion === "cancelar" && !confirm(`¿Cancelar el pedido ${codigo}? Si ya estaba confirmado, el stock se devuelve.`)) return;
   b.disabled = true;
   try {
@@ -975,7 +986,7 @@ function renderMensaje(plantilla, v) {
 const firmaWeb = () => { const { logoHash, ...resto } = W; return JSON.stringify(resto); };
 const webSucia = () => !!W && firmaWeb() !== WBASE;
 const COLORES = [["#1fd65f", "Verde cancha"], ["#3aa9ff", "Celeste"], ["#ffc72c", "Amarillo"], ["#ff5a4d", "Rojo"], ["#c58bff", "Violeta"]];
-const DATOS_MENSAJE = ["marca", "codigo", "nombre", "negocio", "pedido", "unidades", "precio", "total", "notas", "condiciones"];
+const DATOS_MENSAJE = ["marca", "codigo", "nombre", "negocio", "pedido", "envio", "unidades", "precio", "total", "notas", "condiciones"];
 const dinero2 = (n) => "$" + Number(n).toLocaleString("es-AR");
 
 async function cargarWeb() {
@@ -999,6 +1010,7 @@ function refrescarWeb() {
   const l0 = lineasOrdenadas()[0], l9 = l0 && l0.tramos.filter((t) => t.desde <= 9).pop(), conLineas = !!l0;
   const pedidoEj = "1) Barcelona 26/27\n   M x2, L x3\n2) River ORIGINAL\n   S x4";
   $("wMensajeVista").textContent = renderMensaje(W.mensaje || "", { marca: W.marca, codigo: "A-7K3QX", nombre: "Pablo", negocio: "Kiosco Pablo, Rosario",
+    envio: W.pedirEnvio ? ["*Datos de envío*", "DNI: 30123456", "Provincia / ciudad: Santa Fe / Rosario", "Código postal: 2000", "Dirección: Mitre 123", "Correo: pablo@correo.com", "Envío por: Vía Cargo"].join("\n") : "",
     pedido: conLineas ? `*${l0.nombre || "Línea"} · 9 u.${!W.ocultarPrecios && l9 ? ` × ${dinero2(l9.precio)} = ${dinero2(9 * l9.precio)}` : ""}*\n${pedidoEj}` : pedidoEj,
     unidades: "9 camisetas", precio: !W.ocultarPrecios && !conLineas && t9 ? dinero2(t9.precio) : "",
     total: W.ocultarPrecios ? "" : conLineas ? (l9 ? dinero2(9 * l9.precio) : "") : (t9 ? dinero2(9 * t9.precio) : ""), notas: "", condiciones: W.condiciones });
@@ -1038,6 +1050,11 @@ function pintarTramosWeb() {
 }
 $("wTramos").addEventListener("input", (e) => { const d = e.target.dataset, v = parseInt(e.target.value, 10) || 0; if (d.td !== undefined) W.tramos[d.td].desde = v; if (d.tp !== undefined) W.tramos[d.tp].precio = v; refrescarWeb(); });
 $("wTramos").addEventListener("click", (e) => { const q = e.target.closest("[data-tq]"); if (q) { W.tramos.splice(Number(q.dataset.tq), 1); pintarTramosWeb(); refrescarWeb(); } });
+$("wIntercambiar").addEventListener("click", () => {
+  const a = String(W.whatsapp || ""), b = String(W.whatsappAlterno || "");
+  if (!/^\d{10,15}$/.test(b)) { aviso("Primero cargá el otro número, con código de país y sin +."); return; }
+  W.whatsapp = b; W.whatsappAlterno = a; pintarFormWeb(); aviso("Intercambiados: apretá «Guardar y publicar» para que rija.");
+});
 $("wTramoMas").addEventListener("click", () => { const ult = tramosOrdenados().pop(); W.tramos.push({ desde: ult ? ult.desde * 2 : 6, precio: ult ? ult.precio : 0 }); pintarTramosWeb(); refrescarWeb(); });
 /* precios por línea: cada línea con su mínimo, sus categorías y su escala */
 const lineasOrdenadas = () => (W.lineas || []).map((l) => ({ ...l, tramos: l.tramos.filter((t) => t.desde > 0 && t.precio > 0).slice().sort((a, b) => a.desde - b.desde) }));

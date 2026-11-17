@@ -433,6 +433,8 @@ def api_catalogo(response: Response) -> dict:
         "limitarStock": w["limitarStock"],
         "mostrarUnidades": w["mostrarUnidades"],
         "whatsapp": w["whatsapp"],
+        "pedirEnvio": w["pedirEnvio"],
+        "pago": w["pago"],
         "marca": w["marca"],
         "tiendaUrl": w["tiendaUrl"] if w["tiendaUrl"].lower().startswith(("http://", "https://")) else "",
         "categorias": [{"id": c["id"], "nombre": c["nombre"]} for c in categorias_vigentes()],
@@ -477,12 +479,25 @@ class LineaPedido(BaseModel):
     pers: bool = False  # con parche y número (otra línea de precios)
 
 
+class Envio(BaseModel):
+    """Los datos para despachar el pedido (todos opcionales: la web los pide si el negocio lo configuró)."""
+
+    dni: str = Field(default="", max_length=20)
+    provincia: str = Field(default="", max_length=60)
+    ciudad: str = Field(default="", max_length=80)
+    cp: str = Field(default="", max_length=12)
+    direccion: str = Field(default="", max_length=140)
+    email: str = Field(default="", max_length=120)
+    transporte: str = Field(default="", max_length=40)
+
+
 class PedidoNuevo(BaseModel):
     codigo: str = Field(pattern=r"^A-[A-Z0-9]{5}$")
     items: list[LineaPedido] = Field(min_length=1, max_length=120)
     nombre: str = Field(default="", max_length=80)
     negocio: str = Field(default="", max_length=120)
     notas: str = Field(default="", max_length=600)
+    envio: Envio = Field(default_factory=Envio)
 
 
 def _ip_de(request: Request) -> str:
@@ -530,7 +545,8 @@ def api_pedido(datos: PedidoNuevo, request: Request) -> dict:
     total = _total_estimado(items, unidades)
     guardado = _almacen.crear_pedido(
         datos.codigo,
-        {"items": items, "nombre": datos.nombre.strip(), "negocio": datos.negocio.strip(), "notas": datos.notas.strip()},
+        {"items": items, "nombre": datos.nombre.strip(), "negocio": datos.negocio.strip(), "notas": datos.notas.strip(),
+         **({"envio": {k: v.strip() for k, v in datos.envio.model_dump().items() if v.strip()}} if any(v.strip() for v in datos.envio.model_dump().values()) else {})},
         unidades,
         total,
     )

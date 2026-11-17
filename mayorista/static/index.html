@@ -222,6 +222,11 @@ a { color: inherit; }
 .totales .gran { font-family: var(--display); font-size: 34px; line-height: 1.05; font-weight: 800; color: var(--verde); }
 .campo { display: grid; gap: 6px; }
 .campo label { font-size: 13px; font-weight: 700; color: var(--gris); }
+.campo select { background: var(--negro); border: 1.5px solid var(--linea); border-radius: 10px; color: var(--texto); padding: 10px 12px; font: inherit; min-height: 44px; width: 100%; }
+.campo-dos { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.sub-ped { margin: 6px 0 0; font-size: 13px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--verde); }
+.pago-ped { border: 1.5px dashed color-mix(in srgb, var(--verde) 60%, transparent); border-radius: var(--radio); padding: 12px 14px; font-size: 14px; background: var(--negro-3); }
+.pago-ped b { display: block; margin-bottom: 4px; color: var(--verde); font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
 .campo input, .campo textarea { background: var(--negro); border: 1.5px solid var(--linea); border-radius: 10px; color: var(--texto); padding: 10px 12px; font: inherit; min-height: 44px; width: 100%; }
 .campo textarea { min-height: 72px; resize: vertical; }
 .nota { font-size: 13px; color: var(--gris); margin: 0; }
@@ -344,7 +349,7 @@ a { color: inherit; }
 
 <script>
 /* La configuración y los productos vienen del servidor (/api/catalogo). */
-let CFG = { tramos: [], lineas: [], minimo: 6, limitarStock: true, mostrarUnidades: true, whatsapp: "", marca: "", filtroVersion: true, mensaje: "", pausa: false };
+let CFG = { tramos: [], lineas: [], minimo: 6, limitarStock: true, mostrarUnidades: true, whatsapp: "", marca: "", filtroVersion: true, mensaje: "", pausa: false, pedirEnvio: true, pago: "" };
 let CATS = [["todas", "Todas"]];
 const VERS = [["todas", "Todas"], ["jugador", "Versión jugador"], ["fan", "Versión fan"]];
 let NOMBRE_CAT = {};
@@ -357,14 +362,18 @@ let PRODUCTOS = [], porId = new Map();
 let filtroCat = "todas", filtroVer = "todas", texto = "";
 let pedido = {}; // id -> { "M": 2, "L": 1 }
 let editando = null, borrador = {};
-let datosGuardados = { nombre: "", negocio: "", notas: "" };
+let datosGuardados = { nombre: "", negocio: "", notas: "", dni: "", provincia: "", ciudad: "", cp: "", direccion: "", email: "", transporte: "" };
 
 try {
   const g = JSON.parse(localStorage.getItem("mayorista-pedido") || "{}");
   if (g && g.pedido) pedido = g.pedido;
-  if (g && g.datos) datosGuardados = g.datos;
+  if (g && g.datos) datosGuardados = { ...datosGuardados, ...g.datos };
 } catch (e) {}
-function datos() { return { nombre: ($("fNombre") || {}).value || "", negocio: ($("fNegocio") || {}).value || "", notas: ($("fNotas") || {}).value || "" }; }
+/* Cada dato del formulario del pedido y el campo donde se escribe. Sin el formulario a la vista, valen los guardados. */
+const CAMPOS = [["nombre", "fNombre"], ["negocio", "fNegocio"], ["notas", "fNotas"], ["dni", "fDni"], ["provincia", "fProv"], ["ciudad", "fCiudad"], ["cp", "fCp"], ["direccion", "fDir"], ["email", "fEmail"], ["transporte", "fTransp"]];
+function datos() { const d = {}; CAMPOS.forEach(([k, id]) => { const el = $(id); d[k] = el ? el.value : (datosGuardados[k] || ""); }); return d; }
+/* Con "pedirEnvio", el pedido no sale hasta tener los datos para despachar. */
+const envioCompleto = () => { if (!CFG.pedirEnvio) return true; const d = datos(); return ["nombre", "dni", "provincia", "ciudad", "cp", "direccion", "transporte"].every((k) => d[k].trim()) && /^\S+@\S+\.\S+$/.test(d.email.trim()); };
 function guardar() { try { localStorage.setItem("mayorista-pedido", JSON.stringify({ pedido, datos: datosGuardados })); } catch (e) {} }
 
 /* Las claves del pedido son el id del modelo ("12", lisa) o el id con una p ("12p", con parche y número):
@@ -400,7 +409,7 @@ function totalPrecio() {
   const gs = grupos(); if (!gs.length || gs.some((g) => g.precio == null)) return null;
   return gs.reduce((a, g) => a + g.precio * g.n, 0);
 }
-const puedeEnviar = () => !CFG.pausa && total() > 0 && (CFG.lineas.length ? grupos().every((g) => !g.falta) : total() >= CFG.minimo);
+const puedeEnviar = () => !CFG.pausa && total() > 0 && envioCompleto() && (CFG.lineas.length ? grupos().every((g) => !g.falta) : total() >= CFG.minimo);
 const detalleTalles = (m) => Object.entries(m).filter(([, n]) => n > 0).map(([t, n]) => `${t} x${n}`).join(", ");
 const nombreVersion = (v) => (v === "jugador" ? "Versión jugador" : "Versión fan");
 const maximoDe = (t) => (CFG.limitarStock ? t.stock : 99);
@@ -516,7 +525,7 @@ function nuevoCodigo() {
   return "A-" + [...b].map((x) => ALFABETO[x % 32]).join("");
 }
 function codigoActual() {
-  const d = datos(), firma = JSON.stringify([pedido, d.nombre, d.negocio, d.notas]);
+  const d = datos(), firma = JSON.stringify([pedido, d]);
   if (codigoPedido.firma !== firma) codigoPedido = { firma, codigo: nuevoCodigo() };
   return codigoPedido.codigo;
 }
@@ -526,7 +535,8 @@ function registrarPedido() {
   for (const [k, talles] of Object.entries(pedido)) for (const [talle, n] of Object.entries(talles)) if (n > 0) items.push({ producto: idDe(k), talle, cantidad: n, pers: esPers(k) });
   try {
     fetch("/api/pedido", { method: "POST", headers: { "Content-Type": "application/json" }, keepalive: true,
-      body: JSON.stringify({ codigo: codigoActual(), items, nombre: d.nombre.slice(0, 80), negocio: d.negocio.slice(0, 120), notas: d.notas.slice(0, 600) }) }).catch(() => {});
+      body: JSON.stringify({ codigo: codigoActual(), items, nombre: d.nombre.slice(0, 80), negocio: d.negocio.slice(0, 120), notas: d.notas.slice(0, 600),
+        envio: { dni: d.dni.slice(0, 20), provincia: d.provincia.slice(0, 60), ciudad: d.ciudad.slice(0, 80), cp: d.cp.slice(0, 12), direccion: d.direccion.slice(0, 140), email: d.email.slice(0, 120), transporte: d.transporte.slice(0, 40) } }) }).catch(() => {});
   } catch (e) {}
 }
 
@@ -546,14 +556,18 @@ function mensaje() {
     /* Con líneas, cada una va con su cabecera: cantidad, precio y subtotal. Así el equipo ve qué escala se aplicó. */
     cuerpo = grupos().map((g) => `*${g.nombre} · ${g.n} u.${g.precio != null ? ` × ${peso(g.precio)} = ${peso(g.precio * g.n)}` : ""}*\n` + g.ids.map((id) => renglon(id, ++i)).join("\n")).join("\n\n");
   } else cuerpo = Object.keys(pedido).map((id) => renglon(id, ++i)).join("\n");
-  return renderMensaje(CFG.mensaje, { marca: CFG.marca, codigo: codigoActual(), nombre: d.nombre, negocio: d.negocio, pedido: cuerpo,
+  /* Los datos para despachar van después del pedido; si el mensaje guardado en el panel no tiene {envio}, se suman igual. */
+  const bloqueEnvio = [d.dni && `DNI: ${d.dni}`, (d.provincia || d.ciudad) && `Provincia / ciudad: ${[d.provincia, d.ciudad].filter(Boolean).join(" / ")}`, d.cp && `Código postal: ${d.cp}`, d.direccion && `Dirección: ${d.direccion}`, d.email && `Correo: ${d.email}`, d.transporte && `Envío por: ${d.transporte}`].filter(Boolean);
+  const envio = bloqueEnvio.length ? `*Datos de envío*\n${bloqueEnvio.join("\n")}` : "";
+  const plantilla = CFG.mensaje.includes("{envio}") || !envio ? CFG.mensaje : CFG.mensaje.replace("{pedido}", "{pedido}\n\n{envio}");
+  return renderMensaje(plantilla, { marca: CFG.marca, codigo: codigoActual(), nombre: d.nombre, negocio: d.negocio, pedido: cuerpo, envio,
     unidades: `${n} ${n === 1 ? "camiseta" : "camisetas"}`, precio: pu ? peso(pu) : "", total: tp ? peso(tp) : "", notas: d.notas, condiciones: CONDICIONES });
 }
 /* Las condiciones empiezan con "Condiciones: ..."; en la nota va solo el texto, con mayúscula. */
 const sinTitulo = (t) => { const s = t.replace(/^Condiciones:\s*/i, ""); return s.charAt(0).toUpperCase() + s.slice(1); };
 function pintarPedido() {
   const ids = Object.keys(pedido); const n = total(); const pu = precioUnidad(n);
-  const actuales = datos(); if (actuales.nombre || actuales.negocio || actuales.notas) datosGuardados = actuales;
+  const actuales = datos(); if (Object.values(actuales).some((v) => v)) datosGuardados = actuales;
   if (!ids.length) {
     $("pCuerpo").innerHTML = `<p class="nota">Todavía no sumaste camisetas. Elegí un modelo del catálogo y cargá los talles.</p>`;
     $("pPie").innerHTML = `<button class="secundario" type="button" data-cerrar>Seguir mirando</button>`; return;
@@ -585,24 +599,39 @@ function pintarPedido() {
   const f = datosGuardados;
   $("pCuerpo").innerHTML = `${lineas}
     ${medidor}
-    <div class="campo"><label for="fNombre">Tu nombre</label><input id="fNombre" autocomplete="name" value="${esc(f.nombre)}"></div>
-    <div class="campo"><label for="fNegocio">Negocio y ciudad</label><input id="fNegocio" autocomplete="organization" value="${esc(f.negocio)}"></div>
+    <div class="campo"><label for="fNombre">${CFG.pedirEnvio ? "Nombre completo" : "Tu nombre"}</label><input id="fNombre" autocomplete="name" value="${esc(f.nombre)}"></div>
+    <div class="campo"><label for="fNegocio">Negocio (opcional)</label><input id="fNegocio" autocomplete="organization" value="${esc(f.negocio)}"></div>
+    ${CFG.pedirEnvio ? `<p class="sub-ped">Datos de envío</p>
+    <div class="campo-dos"><div class="campo"><label for="fDni">DNI</label><input id="fDni" inputmode="numeric" autocomplete="off" value="${esc(f.dni)}"></div>
+      <div class="campo"><label for="fCp">Código postal</label><input id="fCp" inputmode="numeric" autocomplete="postal-code" value="${esc(f.cp)}"></div></div>
+    <div class="campo-dos"><div class="campo"><label for="fProv">Provincia</label><input id="fProv" autocomplete="address-level1" value="${esc(f.provincia)}"></div>
+      <div class="campo"><label for="fCiudad">Ciudad</label><input id="fCiudad" autocomplete="address-level2" value="${esc(f.ciudad)}"></div></div>
+    <div class="campo"><label for="fDir">Dirección (calle y numeración)</label><input id="fDir" autocomplete="street-address" value="${esc(f.direccion)}"></div>
+    <div class="campo"><label for="fEmail">Correo electrónico</label><input id="fEmail" type="email" inputmode="email" autocomplete="email" value="${esc(f.email)}"></div>
+    <div class="campo"><label for="fTransp">Enviar por</label><select id="fTransp"><option value="">Elegí una opción</option>${["Vía Cargo", "Correo Argentino"].map((o) => `<option ${f.transporte === o ? "selected" : ""}>${o}</option>`).join("")}</select></div>` : ""}
     <div class="campo"><label for="fNotas">Notas del pedido (opcional)</label><textarea id="fNotas">${esc(f.notas)}</textarea></div>`;
   const tp = conLineas ? totalPrecio() : null;
   const filasTotal = conLineas
     ? gs.map((g) => `<div><span>${esc(g.nombre)} · ${g.n} u.</span><b>${g.precio != null ? `${peso(g.precio)} c/u` : "a confirmar"}</b></div>`).join("") + (tp ? `<div class="gran"><span>Total</span><span>${peso(tp)}</span></div>` : `<div><span>Total</span><b>a confirmar</b></div>`)
     : (pu ? `<div><span>Precio por unidad</span><b>${peso(pu)}</b></div><div class="gran"><span>Total</span><span>${peso(pu * n)}</span></div>` : `<div><span>Precio por unidad</span><b>${CFG.tramos.length ? `desde ${minimo} camisetas` : "a confirmar"}</b></div>`);
-  const sinMinimo = conLineas ? gs.find((g) => g.falta) : (n < minimo ? { falta: minimo - n, nombre: "" } : null);
-  const textoBoton = CFG.pausa ? "Pedidos pausados por ahora" : sinMinimo ? `Sumá ${sinMinimo.falta} más${conLineas ? ` de ${sinMinimo.nombre}` : ""} para enviar` : "Enviar pedido por WhatsApp";
+  const textoBoton = textoEnviar();
   $("pPie").innerHTML = `<div class="totales"><div><span>Camisetas</span><b>${n}</b></div>
     ${filasTotal}</div>
+    ${CFG.pago ? `<div class="pago-ped"><b>Cómo pagar</b>${esc(CFG.pago)}</div>` : ""}
     <a class="primario" id="enviarWA" href="#" target="_blank" rel="noopener" aria-disabled="${!puedeEnviar()}">${textoBoton}</a>
     <button class="secundario" id="copiar" type="button">Copiar pedido</button>
     <p class="nota" id="notaCopia">Se abre tu WhatsApp con el pedido escrito. ${esc(sinTitulo(CONDICIONES))}</p>`;
   actualizarLink();
 }
+/* Lo que dice el botón: qué falta (camisetas de una línea o datos de envío) o que ya se puede enviar. */
+function textoEnviar() {
+  const conLineas = CFG.lineas.length > 0, n = total();
+  const sinMinimo = conLineas ? grupos().find((g) => g.falta) : (n < CFG.minimo ? { falta: CFG.minimo - n, nombre: "" } : null);
+  return CFG.pausa ? "Pedidos pausados por ahora" : sinMinimo ? `Sumá ${sinMinimo.falta} más${conLineas ? ` de ${sinMinimo.nombre}` : ""} para enviar` : !envioCompleto() ? "Completá tus datos de envío para enviar" : "Enviar pedido por WhatsApp";
+}
 function actualizarLink() {
   const a = $("enviarWA"); if (!a) return;
+  a.textContent = textoEnviar(); a.setAttribute("aria-disabled", String(!puedeEnviar()));
   a.href = puedeEnviar() ? `https://wa.me/${CFG.whatsapp}?text=${encodeURIComponent(mensaje())}` : "#";
 }
 $("hojaPedido").addEventListener("input", () => { datosGuardados = datos(); actualizarLink(); guardar(); });
@@ -703,7 +732,7 @@ async function cargar() {
     const r = await fetch("/api/catalogo", { cache: "no-store" });
     if (!r.ok) throw new Error(r.status);
     const d = await r.json();
-    CFG = { tramos: d.tramos, lineas: d.lineas || [], minimo: d.minimo, limitarStock: d.limitarStock, mostrarUnidades: d.mostrarUnidades !== false, whatsapp: d.whatsapp, marca: d.marca || "", filtroVersion: d.filtroVersion !== false, mensaje: d.mensaje || "{pedido}", pausa: !!d.pausa };
+    CFG = { tramos: d.tramos, lineas: d.lineas || [], minimo: d.minimo, limitarStock: d.limitarStock, mostrarUnidades: d.mostrarUnidades !== false, whatsapp: d.whatsapp, marca: d.marca || "", filtroVersion: d.filtroVersion !== false, mensaje: d.mensaje || "{pedido}", pausa: !!d.pausa, pedirEnvio: d.pedirEnvio !== false, pago: d.pago || "" };
     aplicarNegocio(d);
     PRODUCTOS = d.productos; porId = new Map(PRODUCTOS.map((p) => [p.id, p]));
     $("waDirecto").href = `https://wa.me/${CFG.whatsapp}`;
