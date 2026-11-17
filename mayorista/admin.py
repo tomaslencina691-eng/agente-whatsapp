@@ -33,6 +33,8 @@ import ajustes
 import almacen
 import avisos as avisos_mod
 import historial as hist
+import mp
+import pagos as cruce_de_pagos
 import tn
 
 log = logging.getLogger("mayorista.admin")
@@ -99,6 +101,15 @@ class Incluir(BaseModel):
 
 class UnModelo(BaseModel):
     producto: int
+
+
+class AsignarPago(BaseModel):
+    codigo: str = Field(pattern=r"^A-[A-Z0-9]{5}$")
+
+
+class ConfigDePagos(BaseModel):
+    activo: bool = False
+    modo: Literal["sugerir", "auto"] = "sugerir"
 
 
 class Categoria(BaseModel):
@@ -254,8 +265,11 @@ def crear_router(
     web_defecto: Callable[[], dict] | None = None,
     agente_=None,
     avisador=None,
+    mercadopago=None,
 ) -> APIRouter:
     router = APIRouter(prefix="/admin/api")
+    mp_ = mercadopago or mp  # Mercado Pago (se reemplaza en las pruebas)
+    cuenta_mp: dict = {"datos": None}  # de quién es el token, la primera vez que se pregunta
     nombres: dict[int, str] = {}  # los últimos nombres vistos, para el historial
     tienda: dict = {"t": 0.0, "productos": None}  # lo último que se leyó de la tienda
 
@@ -485,6 +499,117 @@ def crear_router(
         resultado = _aplicar(usuario, cambios)
         historial.marcar_deshecho(lote)
         return resultado
+
+    # -- Cobros de Mercado Pago (ver mp.py y pagos.py) --
+
+    def _config_pagos() -> dict:
+        c = almacen_.config("pagos") or {}
+        return {"activo": bool(c.get("activo")) and mp_.configurado(), "modo": c.get("modo") if c.get("modo") in ("sugerir", "auto") else "sugerir"}
+
+    def _vista_de_cobro(c: dict, cruce: dict | None) -> dict:
+        d = c.get("datos") or {}
+        return {
+            "id": c["id"], "monto": c["monto"], "fecha": c["fecha"], "pagador": d.get("pagador") or {}, "tipo": d.get("tipo") or "",
+            "pedidos": (cruce or {}).get("pedidos", []), "seguro": (cruce or {}).get("seguro"),
+        }
+
+    def _cobros_por_resolver() -> list[dict]:
+        """Los cobros detectados que todavía no se asignaron a un pedido, con los pedidos que podrían ser."""
+        if not _config_pagos()["activo"]:
+            return []
+        detectados = almacen_.pagos("detectado", 100)
+        cruzados = cruce_de_pagos.cruzar(detectados, almacen_.pedidos("nuevo", 500))
+        return [_vista_de_cobro(c, cruzados.get(c["id"])) for c in detectados]
+
+    def _mi_id():
+        if cuenta_mp["datos"] is None:
+            cuenta_mp["datos"] = mp_.cuenta()
+        return cuenta_mp["datos"].get("id")
+
+    def _asignar(cobro_id: str, codigo: str, usuario: str) -> dict:
+        """Confirma el pedido con este cobro: marca el cobro, descuenta el stock y, si algo sale mal, lo suelta."""
+        cobro = next((c for c in almacen_.pagos(None, 1000) if c["id"] == cobro_id), None)
+        if cobro is None:
+            raise HTTPException(404, "No existe ese cobro.")
+        pedido = almacen_.pedido(codigo)
+        if pedido is None or pedido["estado"] != "nuevo":
+            raise HTTPException(409, "Ese pedido ya no está por confirmar.")
+        if not almacen_.marcar_pago(cobro_id, "asignado", codigo):
+            raise HTTPException(409, "Ese cobro ya se asignó o se ignoró.")
+        try:
+            r = _confirmar(codigo, usuario)
+        except BaseException:
+            almacen_.marcar_pago(cobro_id, "detectado", None, desde=("asignado",))
+            raise
+        return {**r, "cobro": cobro_id, "monto": cobro["monto"], "total": pedido["total"]}
+
+    def sincronizar_pagos(usuario: str = "Mercado Pago") -> dict:
+        """Mira lo que entró a Mercado Pago, guarda lo nuevo y, en modo automático, confirma los cruces seguros.
+
+        Lo llama una tarea cada pocos minutos (ver sitio.py) y el botón «Revisar ahora» del panel.
+        """
+        if not _config_pagos()["activo"]:
+            return {"revisado": False, "nuevos": 0, "confirmados": 0}
+        try:
+            cobros = mp_.cobros_recientes(mi_id=_mi_id())
+        except mp.ErrorDeMercadoPago as e:
+            log.warning("No se pudo revisar Mercado Pago: %s", e)
+            raise HTTPException(502, str(e)) from None
+        nuevos = almacen_.guardar_pagos(cobros)
+        confirmados = 0
+        if _config_pagos()["modo"] == "auto":
+            for c in _cobros_por_resolver():
+                if c["seguro"]:
+                    try:
+                        _asignar(c["id"], c["seguro"], usuario)
+                        confirmados += 1
+                    except HTTPException as e:
+                        log.warning("No se pudo confirmar solo el pedido %s con el cobro %s: %s", c["seguro"], c["id"], e.detail)
+        return {"revisado": True, "nuevos": len(nuevos), "confirmados": confirmados}
+
+    router.sincronizar_pagos = sincronizar_pagos  # lo usa la tarea periódica de sitio.py
+
+    @router.get("/pagos")
+    def pagos_ver(usuario: str = Depends(usuario_actual)) -> dict:
+        cfg = _config_pagos()
+        return {"configurado": mp_.configurado(), **cfg, "porResolver": _cobros_por_resolver(),
+                "asignados": [{"id": c["id"], "monto": c["monto"], "fecha": c["fecha"], "pedido": c["pedido"]} for c in almacen_.pagos("asignado", 10)]}
+
+    @router.post("/pagos/revisar")
+    def pagos_revisar(usuario: str = Depends(usuario_actual)) -> dict:
+        if not _config_pagos()["activo"]:
+            raise HTTPException(409, "La verificación de pagos está apagada.")
+        return sincronizar_pagos(usuario)
+
+    @router.post("/pagos/{cobro}/asignar")
+    def pagos_asignar(cobro: str, datos: AsignarPago, usuario: str = Depends(usuario_actual)) -> dict:
+        return _asignar(cobro, datos.codigo, usuario)
+
+    @router.post("/pagos/{cobro}/ignorar")
+    def pagos_ignorar(cobro: str, usuario: str = Depends(usuario_actual)) -> dict:
+        if not almacen_.marcar_pago(cobro, "ignorado"):
+            raise HTTPException(409, "Ese cobro ya se asignó o se ignoró.")
+        return {"ignorado": True}
+
+    @router.put("/pagos/config")
+    def pagos_config(datos: ConfigDePagos, usuario: str = Depends(usuario_actual)) -> dict:
+        if datos.activo and not mp_.configurado():
+            raise HTTPException(422, "Falta cargar MERCADOPAGO_ACCESS_TOKEN en el servidor.")
+        almacen_.guardar_config("pagos", {"activo": datos.activo, "modo": datos.modo})
+        anotar(hist.lote_nuevo(), usuario, [{"accion": "config", "producto_id": 0, "producto": "Verificación de pagos (Mercado Pago)", "talle": f"{'activa' if datos.activo else 'apagada'} · {datos.modo}", "antes": None, "despues": None}])
+        return _config_pagos()
+
+    @router.post("/pagos/probar")
+    def pagos_probar(usuario: str = Depends(usuario_actual)) -> dict:
+        """Para comprobar la conexión: de quién es el token y los últimos cobros que ve (no guarda nada)."""
+        try:
+            cuenta_mp["datos"] = None
+            yo = mp_.cuenta()
+            cuenta_mp["datos"] = yo
+            recientes = mp_.cobros_recientes(dias=7, limite=10, mi_id=yo.get("id"))
+        except mp.ErrorDeMercadoPago as e:
+            raise HTTPException(502, str(e)) from None
+        return {"cuenta": yo, "recientes": recientes}
 
     # -- Stock compartido con Tiendanube (ver stock_tn.py) --
 
@@ -952,7 +1077,7 @@ def crear_router(
 
     # -- Pedidos --
 
-    def _vista_de_pedido(p: dict, stock_actual: dict[tuple[int, str], int]) -> dict:
+    def _vista_de_pedido(p: dict, stock_actual: dict[tuple[int, str], int], cobro: dict | None = None) -> dict:
         datos = p["datos"]
         items = [
             {"producto": i["producto"], "nombre": i.get("nombre") or nombre(i["producto"]), "talle": i["talle"], "cantidad": i["cantidad"], "pers": bool(i.get("pers")),
@@ -968,7 +1093,7 @@ def crear_router(
         return {
             "codigo": p["codigo"], "fecha": p["fecha"], "estado": p["estado"], "unidades": p["unidades"], "total": p["total"],
             "nombre": datos.get("nombre", ""), "negocio": datos.get("negocio", ""), "notas": datos.get("notas", ""),
-            "envio": datos.get("envio") or {}, "items": items, "falta": falta,
+            "envio": datos.get("envio") or {}, "items": items, "falta": falta, "pagoDetectado": cobro,
         }
 
     @router.get("/pedidos")
@@ -982,7 +1107,14 @@ def crear_router(
         for p in lista:
             for i in p["datos"]["items"]:
                 nombres.setdefault(i["producto"], i.get("nombre") or "")
-        return {"pedidos": [_vista_de_pedido(p, stock_actual) for p in lista], "cuenta": almacen_.cuenta_por_estado(), "whatsapp": _web_actual().get("whatsapp", "")}
+        cobros = _cobros_por_resolver()
+        seguros = {c["seguro"]: c for c in cobros if c["seguro"]}
+        return {
+            "pedidos": [_vista_de_pedido(p, stock_actual, seguros.get(p["codigo"])) for p in lista],
+            "cuenta": almacen_.cuenta_por_estado(),
+            "whatsapp": _web_actual().get("whatsapp", ""),
+            "pagos": {"activo": _config_pagos()["activo"], "porResolver": [c for c in cobros if not c["seguro"]]},
+        }
 
     def _movimientos(codigo: str, accion: str, movs: list[dict]) -> list[dict]:
         pedido = almacen_.pedido(codigo)
@@ -1005,6 +1137,9 @@ def crear_router(
 
     @router.post("/pedidos/{codigo}/confirmar")
     def pedido_confirmar(codigo: str, usuario: str = Depends(usuario_actual)) -> dict:
+        return _confirmar(codigo, usuario)
+
+    def _confirmar(codigo: str, usuario: str) -> dict:
         previo = almacen_.pedido(codigo)
         modelos = {i["producto"] for i in previo["datos"]["items"]} if previo else set()
         antes = almacen_.filas(modelos) if modelos else []

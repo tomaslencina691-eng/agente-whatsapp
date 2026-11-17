@@ -202,6 +202,14 @@ tr.sin-stock .nombre { color: var(--suave); }
 .credenciales { display: grid; gap: 8px; background: color-mix(in srgb, var(--mostaza) 10%, var(--noche)); border: 1.5px solid var(--mostaza); border-radius: 14px; padding: 14px; }
 .credenciales pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 600 14px/1.6 ui-monospace, Menlo, Consolas, monospace; }
 
+/* cobros de Mercado Pago */
+.cobro { display: grid; gap: 8px; background: color-mix(in srgb, var(--mostaza) 8%, var(--noche-2)); border: 1px solid color-mix(in srgb, var(--mostaza) 55%, var(--linea)); border-radius: 12px; padding: 10px 12px; }
+.cobro b.monto { font: 800 22px/1 var(--display); color: var(--mostaza-claro); }
+.cobro .fila-cobro { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; }
+.cobro .acciones { justify-content: flex-start; }
+.cobro input { background: var(--noche); border: 1.5px solid var(--linea); border-radius: 8px; padding: 6px 10px; min-height: 36px; width: 130px; text-transform: uppercase; }
+.pago-detectado { display: grid; gap: 6px; background: color-mix(in srgb, var(--mostaza) 12%, var(--noche)); border: 1.5px solid var(--mostaza); border-radius: 10px; padding: 8px 10px; }
+
 /* ventanas */
 .velo { position: fixed; inset: 0; background: rgba(5, 12, 8, .75); z-index: 80; display: none; }
 .velo.on { display: block; }
@@ -316,6 +324,7 @@ tr.sin-stock .nombre { color: var(--suave); }
       </select>
       <span class="espacio"></span><span class="estado" id="cuentaPedidos"></span>
     </div>
+    <div id="cobrosPorResolver" style="display:grid;gap:8px" hidden></div>
     <div id="listaPedidos" style="display:grid;gap:10px"></div>
   </div></div></section>
 
@@ -538,6 +547,17 @@ tr.sin-stock .nombre { color: var(--suave); }
       <div id="cuStockEstado" class="ayuda">Cargando...</div>
       <div class="acciones" style="justify-content:flex-start"><button class="btn fuerte" id="cuStockActivar" type="button" hidden>Activar el stock compartido</button><button class="btn" id="cuStockApagar" type="button" hidden>Volver al stock propio</button></div>
       <div class="mensaje" id="cuStockMsg" role="status"></div>
+    </div>
+
+    <div class="grupo" id="cuMp" hidden>
+      <b>Verificación de pagos (Mercado Pago)</b>
+      <p class="ayuda">Lee lo que entra a la cuenta de Mercado Pago del negocio y lo cruza con los pedidos: si un cobro tiene exactamente el total de un solo pedido, el pedido aparece con «Pago detectado» y se confirma con un clic (o solo, si elegís el modo automático). Si hay dudas, no decide: lo resuelve una persona. Solo lee: no crea cobros ni devuelve plata.</p>
+      <div id="cuMpEstado" class="ayuda">Cargando...</div>
+      <label class="opcion"><input type="checkbox" id="mpActivo"><span><b>Revisar los cobros de Mercado Pago</b><small>Se revisa cada 2 minutos.</small></span></label>
+      <div class="campo" style="max-width:420px"><label for="mpModo">Cuando el cobro coincide con un solo pedido</label><select id="mpModo"><option value="sugerir">Solo sugerirlo (se confirma con un clic)</option><option value="auto">Confirmar el pedido solo</option></select></div>
+      <div class="acciones" style="justify-content:flex-start"><button class="btn fuerte" id="mpGuardar" type="button">Guardar</button><button class="btn" id="mpProbar" type="button">Probar la conexión</button></div>
+      <div class="mensaje" id="cuMpMsg" role="status"></div>
+      <div class="detalle" id="mpRecientes" style="display:grid;gap:2px;color:var(--suave);font-size:13px"></div>
     </div>
 
     <div class="grupo">
@@ -909,8 +929,36 @@ async function cargarPedidos(silencioso = false) {
     $("cuentaPedidos").textContent = `${d.pedidos.length} ${d.pedidos.length === 1 ? "pedido" : "pedidos"}`;
     const nuevos = d.cuenta.nuevo || 0, c = $("contadorPedidos"); c.textContent = nuevos; c.hidden = nuevos === 0;
     caja.innerHTML = d.pedidos.length ? d.pedidos.map(tarjetaPedido).join("") : '<p class="ayuda">No hay pedidos en esta lista.</p>';
+    pintarCobros((d.pagos || {}).porResolver || []);
   } catch (e) { if (!silencioso) caja.innerHTML = `<p class="ayuda">No se pudo cargar: ${esc(e.message)}</p>`; }
 }
+/* Cobros que entraron y no se pueden asignar solos: varios pedidos con ese total, o ninguno. */
+function pintarCobros(cobros) {
+  const caja = $("cobrosPorResolver"); caja.hidden = !cobros.length;
+  caja.innerHTML = cobros.length ? `<b>Cobros de Mercado Pago por resolver (${cobros.length})</b>` + cobros.map((c) => `<div class="cobro">
+    <div class="fila-cobro"><b class="monto">${esc(dinero(c.monto))}</b><span>${esc(cuando(c.fecha))}</span><span>${esc(c.pagador.nombre || c.pagador.dni || "sin nombre")}</span></div>
+    <div class="ayuda">${c.pedidos.length ? "El monto coincide con varios pedidos. Elegí cuál es:" : "Ningún pedido por confirmar tiene ese total. Si sabés de cuál es, escribí su código:"}</div>
+    <div class="acciones">${c.pedidos.map((k) => `<button class="btn chico fuerte" data-asignar="${esc(c.id)}|${esc(k)}">Confirmar ${esc(k)}</button>`).join("")}
+      ${c.pedidos.length ? "" : `<input data-codigo-de="${esc(c.id)}" placeholder="A-XXXXX" maxlength="7" aria-label="Código del pedido"><button class="btn chico fuerte" data-asignar-escrito="${esc(c.id)}">Confirmar</button>`}
+      <button class="btn chico" data-ignorar-cobro="${esc(c.id)}">No es de un pedido</button></div></div>`).join("") : "";
+}
+$("pestanaPedidos").addEventListener("click", async (e) => {
+  const a = e.target.closest("[data-asignar],[data-asignar-escrito],[data-ignorar-cobro]"); if (!a) return;
+  let id, codigo;
+  if (a.dataset.ignorarCobro) {
+    if (!confirm("¿Marcar este cobro como «no es de un pedido»? Deja de aparecer acá.")) return;
+    try { await api(`/pagos/${encodeURIComponent(a.dataset.ignorarCobro)}/ignorar`, { metodo: "POST" }); aviso("Listo: el cobro se ignora."); } catch (err) { alert(err.message); }
+    cargarPedidos(true); return;
+  }
+  if (a.dataset.asignarEscrito) { id = a.dataset.asignarEscrito; codigo = ($("cobrosPorResolver").querySelector(`[data-codigo-de="${CSS.escape(id)}"]`) || {}).value || ""; codigo = codigo.trim().toUpperCase(); if (!/^A-[A-Z0-9]{5}$/.test(codigo)) { alert("Escribí el código del pedido, por ejemplo A-7K3QX."); return; } }
+  else [id, codigo] = a.dataset.asignar.split("|");
+  if (!confirm(`¿Confirmar el pedido ${codigo} con este cobro de Mercado Pago? Se descuenta el stock.`)) return;
+  a.disabled = true;
+  try { const r = await api(`/pagos/${encodeURIComponent(id)}/asignar`, { metodo: "POST", cuerpo: { codigo } }); planillaVieja = true;
+    aviso(`Pedido ${codigo} confirmado con el cobro de ${dinero(r.monto)}.` + (r.total != null && Math.abs(r.total - r.monto) > 0.5 ? ` Ojo: el total del pedido era ${dinero(r.total)}.` : "")); }
+  catch (err) { alert(err.message + (err.conflictos && err.conflictos.length ? "\n\n" + err.conflictos.map((c) => `${c.modelo || ""} ${c.talle || ""}: ${c.motivo}`).join("\n") : "")); }
+  cargarPedidos(true);
+});
 function tarjetaPedido(p) {
   const f = new Date(p.fecha).toLocaleString("es-AR", { dateStyle: "medium", timeStyle: "short" }), [et, clase] = ESTADO_PEDIDO[p.estado] || [p.estado, ""];
   const lineas = p.items.map((i) => { const corto = p.estado === "nuevo" && i.hay < i.cantidad;
@@ -919,8 +967,9 @@ function tarjetaPedido(p) {
   const e = p.envio || {}, despacho = [e.dni && `DNI ${e.dni}`, [e.ciudad, e.provincia].filter(Boolean).join(", "), e.cp && `CP ${e.cp}`, e.direccion, e.email, e.transporte && `Por ${e.transporte}`].filter(Boolean).map(esc);
   const botones = (p.estado === "nuevo" ? `<button class="btn fuerte chico" data-confirmar="${esc(p.codigo)}" ${p.falta ? "disabled title=\"No alcanza el stock\"" : ""}>Confirmar pago y descontar stock</button><button class="btn chico" data-cancelar="${esc(p.codigo)}">Cancelar</button>` : "")
     + (p.estado === "confirmado" ? `<button class="btn fuerte chico" data-despachar="${esc(p.codigo)}">Marcar como despachado</button><button class="btn chico" data-cancelar="${esc(p.codigo)}">Cancelar y devolver el stock</button>` : "");
+  const cd = p.pagoDetectado, detectado = cd ? `<div class="pago-detectado"><div><b>💰 Pago detectado en Mercado Pago: ${esc(dinero(cd.monto))}</b> · ${esc(cuando(cd.fecha))}${cd.pagador && (cd.pagador.nombre || cd.pagador.dni) ? " · " + esc(cd.pagador.nombre || cd.pagador.dni) : ""}</div><div>El monto coincide con el total de este pedido.</div><div class="acciones" style="justify-content:flex-start"><button class="btn fuerte chico" data-asignar="${esc(cd.id)}|${esc(p.codigo)}" ${p.falta ? "disabled title=\"No alcanza el stock\"" : ""}>Confirmar con este pago</button></div></div>` : "";
   return `<article class="lote"><header><b>${esc(p.codigo)}</b><span class="etq ${clase}">${et}</span><span>${esc(f)}</span><span>${p.unidades} ${p.unidades === 1 ? "camiseta" : "camisetas"}${p.total ? " · ~" + dinero(p.total) : ""}</span><span class="espacio"></span>${botones}</header>
-    <div class="detalle">${quien ? `<div><b>${quien}</b></div>` : ""}${despacho.length ? `<div class="despacho"><b>Despacho:</b> ${despacho.join(" · ")}</div>` : '<div class="falta-stock">Sin datos de envío: pedíselos al cliente por WhatsApp.</div>'}${lineas}${p.notas ? `<div>Notas: ${esc(p.notas)}</div>` : ""}${p.falta ? '<div class="falta-stock">No alcanza el stock para confirmar. Hablalo con el cliente o cargá el stock en la planilla.</div>' : ""}</div></article>`;
+    <div class="detalle">${detectado}${quien ? `<div><b>${quien}</b></div>` : ""}${despacho.length ? `<div class="despacho"><b>Despacho:</b> ${despacho.join(" · ")}</div>` : '<div class="falta-stock">Sin datos de envío: pedíselos al cliente por WhatsApp.</div>'}${lineas}${p.notas ? `<div>Notas: ${esc(p.notas)}</div>` : ""}${p.falta ? '<div class="falta-stock">No alcanza el stock para confirmar. Hablalo con el cliente o cargá el stock en la planilla.</div>' : ""}</div></article>`;
 }
 $("estadoPedidos").addEventListener("change", () => cargarPedidos());
 $("listaPedidos").addEventListener("click", async (e) => {
@@ -1321,15 +1370,37 @@ async function cargarCuenta() {
   try { CUENTA = await api("/cuenta"); } catch (e) { $("cuYo").textContent = "No se pudo cargar: " + e.message; return; }
   $("cuYo").textContent = `Entraste como ${CUENTA.usuario} · ${CUENTA.rolNombre}.`;
   $("cuConexiones").innerHTML = CUENTA.conexiones.map((c) => `<div class="lote" style="padding:8px 12px"><header><b>${esc(c.nombre)}</b><span class="etq ${c.estado === "ok" ? "verde" : c.estado === "error" ? "oculto" : ""}">${c.estado === "ok" ? "Conectado" : c.estado === "error" ? "Con problemas" : "Pendiente"}</span></header><div class="detalle"><div>${esc(c.detalle)}</div></div></div>`).join("");
-  $("cuPersonas").hidden = !CUENTA.esDuenio; $("cuAvisos").hidden = !CUENTA.esDuenio; $("cuStock").hidden = !CUENTA.esDuenio;
+  $("cuPersonas").hidden = !CUENTA.esDuenio; $("cuAvisos").hidden = !CUENTA.esDuenio; $("cuStock").hidden = !CUENTA.esDuenio; $("cuMp").hidden = !CUENTA.esDuenio;
   if (!CUENTA.esDuenio) return;
-  cargarStockCompartido();
+  cargarStockCompartido(); cargarMp();
   pintarRolesAlta();
   pintarPersonas();
   const a = CUENTA.avisos;
   $("avPedido").checked = a.pedidoNuevo; $("avPocas").checked = a.pocasUnidades; $("avUmbral").value = a.umbral; $("avNuevos").checked = a.modelosNuevos; $("avFalla").checked = a.fallasDeLaTienda;
   $("cuAvisosPara").textContent = CUENTA.avisosPara ? `Los avisos llegan a ${CUENTA.avisosPara} (se cambia en la pestaña Agente, «Mail de avisos»).` : "Todavía no hay un mail de avisos: cargalo en la pestaña Agente y conectá el correo del agente.";
 }
+/* verificación de pagos con Mercado Pago */
+async function cargarMp() {
+  const caja = $("cuMpEstado");
+  try { const d = await api("/pagos");
+    caja.innerHTML = d.configurado ? (d.activo ? '<span class="etq verde">Activa</span> Se están revisando los cobros.' : '<span class="etq oculto">Apagada</span> El token está cargado: falta prenderla.') : '<span class="etq oculto">Sin token</span> Falta cargar el token de Mercado Pago en el servidor (variable MERCADOPAGO_ACCESS_TOKEN).';
+    $("mpActivo").checked = d.activo; $("mpActivo").disabled = !d.configurado; $("mpModo").value = d.modo; $("mpGuardar").disabled = !d.configurado; $("mpProbar").disabled = !d.configurado;
+  } catch (e) { caja.textContent = "No se pudo cargar: " + e.message; }
+}
+$("mpGuardar").addEventListener("click", async () => {
+  const msg = $("cuMpMsg"); msg.className = "mensaje"; msg.textContent = "";
+  try { await api("/pagos/config", { metodo: "PUT", cuerpo: { activo: $("mpActivo").checked, modo: $("mpModo").value } }); msg.className = "mensaje ok"; msg.textContent = "Guardado."; await cargarMp(); }
+  catch (e) { msg.textContent = e.message; }
+});
+$("mpProbar").addEventListener("click", async () => {
+  const msg = $("cuMpMsg"), caja = $("mpRecientes"); msg.className = "mensaje"; msg.textContent = "Consultando Mercado Pago..."; caja.innerHTML = "";
+  try {
+    const d = await api("/pagos/probar", { metodo: "POST" });
+    msg.className = "mensaje ok"; msg.textContent = `Conectado a la cuenta de ${d.cuenta.nombre || d.cuenta.email || d.cuenta.id}.`;
+    caja.innerHTML = d.recientes.length ? "<b>Lo que entró en los últimos 7 días:</b>" + d.recientes.map((c) => `<div>${esc(dinero(c.monto))} · ${esc(cuando(c.fecha))} · ${esc(c.pagador.nombre || c.pagador.dni || "sin nombre")} · ${esc(c.tipo)}</div>`).join("") : "No se ven cobros en los últimos 7 días (si esperabas transferencias, avisame: puede que Mercado Pago no las muestre por esta vía).";
+  } catch (e) { msg.textContent = e.message; }
+});
+
 /* stock compartido con Tiendanube */
 let STOCK_COMPARTIDO = null;
 async function cargarStockCompartido() {

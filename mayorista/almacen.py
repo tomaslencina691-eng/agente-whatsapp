@@ -12,6 +12,8 @@ aplica entero o no se aplica nada.
   · mayorista_pedidos  lo que arma la gente en la web, con un código (A-7K3QX)
                        que viaja en el mensaje de WhatsApp. Al confirmar un
                        pedido se descuenta el stock; al cancelarlo, se devuelve.
+  · mayorista_pagos    los cobros de Mercado Pago que se detectaron (ver pagos.py): quedan
+                       «detectado» hasta que se asignan a un pedido o se ignoran.
   · mayorista_ignorados  los modelos de la tienda que la persona decidió no
                        ofrecer en el mayorista (no vuelven a aparecer como nuevos).
   · mayorista_config   ajustes que se editan desde el panel (las categorías y los
@@ -52,6 +54,17 @@ CREATE TABLE IF NOT EXISTS mayorista_pedidos (
     actualizado TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS mayorista_pedidos_estado ON mayorista_pedidos (estado, fecha DESC);
+
+CREATE TABLE IF NOT EXISTS mayorista_pagos (
+    id      TEXT          PRIMARY KEY,
+    monto   NUMERIC(14,2) NOT NULL,
+    fecha   TIMESTAMPTZ   NOT NULL,
+    estado  TEXT          NOT NULL DEFAULT 'detectado',
+    pedido  TEXT,
+    datos   JSONB         NOT NULL DEFAULT '{}',
+    creado  TIMESTAMPTZ   NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS mayorista_pagos_estado ON mayorista_pagos (estado, fecha DESC);
 
 CREATE TABLE IF NOT EXISTS mayorista_ignorados (
     producto_id BIGINT      PRIMARY KEY,
@@ -156,6 +169,7 @@ class AlmacenMemoria:
         self._config: dict[str, object] = {}
         self._prompts: list[dict] = []
         self._usuarios: dict[str, dict] = {}
+        self._pagos: dict[str, dict] = {}
 
     def preparar(self) -> None:
         pass
@@ -294,6 +308,33 @@ class AlmacenMemoria:
                 self._stock[fid] = _fila(fid, producto, limpiar_talle(talle), cantidad)
                 n += 1
             return n
+
+    # pagos de Mercado Pago
+    def guardar_pagos(self, pagos: list[dict]) -> list[str]:
+        """Guarda los cobros que todavía no estaban. Devuelve los ids de los nuevos."""
+        with self._candado:
+            nuevos = []
+            for p in pagos:
+                if p["id"] in self._pagos:
+                    continue
+                self._pagos[p["id"]] = {"id": p["id"], "monto": float(p["monto"]), "fecha": p["fecha"], "estado": "detectado", "pedido": None,
+                                        "datos": {k: p.get(k) for k in ("pagador", "tipo", "operacion", "descripcion")}}
+                nuevos.append(p["id"])
+            return nuevos
+
+    def pagos(self, estado: str | None = None, limite: int = 100) -> list[dict]:
+        with self._candado:
+            lista = [dict(p) for p in self._pagos.values() if estado is None or p["estado"] == estado]
+            return sorted(lista, key=lambda p: p["fecha"], reverse=True)[:limite]
+
+    def marcar_pago(self, id: str, estado: str, pedido: str | None = None, desde: tuple[str, ...] = ("detectado",)) -> bool:
+        """Cambia el estado de un cobro (solo si está en uno de los `desde`). False si no existe o ya se resolvió."""
+        with self._candado:
+            p = self._pagos.get(id)
+            if p is None or p["estado"] not in desde:
+                return False
+            p["estado"], p["pedido"] = estado, pedido
+            return True
 
     # pedidos
     def crear_pedido(self, codigo: str, datos: dict, unidades: int, total: int | None) -> bool:
@@ -582,6 +623,40 @@ class AlmacenPG:
             )
             cur.execute("SELECT count(*) FROM mayorista_stock")
             return cur.fetchone()[0] - antes
+
+    # pagos de Mercado Pago
+    def guardar_pagos(self, pagos: list[dict]) -> list[str]:
+        """Guarda los cobros que todavía no estaban. Devuelve los ids de los nuevos."""
+        from psycopg.types.json import Jsonb
+
+        nuevos: list[str] = []
+        with self._conectar() as c, c.cursor() as cur:
+            for p in pagos:
+                datos = {k: p.get(k) for k in ("pagador", "tipo", "operacion", "descripcion")}
+                cur.execute(
+                    "INSERT INTO mayorista_pagos (id, monto, fecha, datos) VALUES (%s, %s, %s, %s) ON CONFLICT (id) DO NOTHING RETURNING id",
+                    (p["id"], p["monto"], p["fecha"], Jsonb(datos)),
+                )
+                if cur.fetchone():
+                    nuevos.append(p["id"])
+        return nuevos
+
+    def pagos(self, estado: str | None = None, limite: int = 100) -> list[dict]:
+        sql = "SELECT id, monto, fecha, estado, pedido, datos FROM mayorista_pagos"
+        parametros: list = []
+        if estado:
+            sql += " WHERE estado = %s"
+            parametros.append(estado)
+        sql += " ORDER BY fecha DESC LIMIT %s"
+        parametros.append(int(limite))
+        with self._conectar() as c, c.cursor() as cur:
+            cur.execute(sql, parametros)
+            return [{"id": f[0], "monto": float(f[1]), "fecha": f[2].isoformat(), "estado": f[3], "pedido": f[4], "datos": f[5]} for f in cur.fetchall()]
+
+    def marcar_pago(self, id: str, estado: str, pedido: str | None = None, desde: tuple[str, ...] = ("detectado",)) -> bool:
+        with self._conectar() as c, c.cursor() as cur:
+            cur.execute("UPDATE mayorista_pagos SET estado = %s, pedido = %s WHERE id = %s AND estado = ANY(%s)", (estado, pedido, id, list(desde)))
+            return cur.rowcount == 1
 
     # pedidos
     def crear_pedido(self, codigo: str, datos: dict, unidades: int, total: int | None) -> bool:

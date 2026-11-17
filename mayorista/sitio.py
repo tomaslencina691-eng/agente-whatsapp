@@ -369,24 +369,41 @@ async def _vigilar_la_tienda() -> None:
         await asyncio.sleep(3 * 3600)
 
 
+SEGUNDOS_ENTRE_REVISIONES_DE_PAGOS = int(os.getenv("MAYORISTA_PAGOS_SEGUNDOS", "120"))
+
+
+async def _vigilar_los_pagos() -> None:
+    """Cada pocos minutos mira lo que entró a Mercado Pago (si está activado en el panel)."""
+    while True:
+        try:
+            await asyncio.to_thread(_panel.sincronizar_pagos)
+        except Exception:  # noqa: BLE001
+            log.warning("No se pudo revisar Mercado Pago", exc_info=False)
+        await asyncio.sleep(SEGUNDOS_ENTRE_REVISIONES_DE_PAGOS)
+
+
 @asynccontextmanager
 async def _vida(_app: FastAPI):
     # Crean las tablas; si no hay base, el contenedor falla a la vista.
     if _historial:
         _historial.preparar()
-    vigilante = None
+    vigilante = vigilante_de_pagos = None
     if _almacen:
         _almacen.preparar()
         if CARGAR_STOCK_INICIAL:
             _cargar_stock_inicial()
         vigilante = asyncio.create_task(_vigilar_la_tienda())
+        vigilante_de_pagos = asyncio.create_task(_vigilar_los_pagos())
     yield
     if vigilante:
         vigilante.cancel()
+    if vigilante_de_pagos:
+        vigilante_de_pagos.cancel()
 
 
 app = FastAPI(title="Mayorista", docs_url=None, redoc_url=None, lifespan=_vida)
-app.include_router(admin.crear_router(_historial, _invalidar_cache, _almacen, CATEGORIAS, _ajustes_de_siempre, _agente, _avisador))
+_panel = admin.crear_router(_historial, _invalidar_cache, _almacen, CATEGORIAS, _ajustes_de_siempre, _agente, _avisador)
+app.include_router(_panel)
 
 
 @app.middleware("http")

@@ -176,7 +176,7 @@ def identidad(almacen_, usuario: str | None) -> dict | None:
 def grupo_de(ruta: str) -> str:
     """Qué permiso pide cada parte del panel."""
     r = ruta.removeprefix("/admin/api")
-    if r.startswith(("/usuarios", "/avisos", "/stock-compartido")):
+    if r.startswith(("/usuarios", "/avisos", "/stock-compartido", "/pagos/config", "/pagos/probar")):
         return "administrar"
     if r.startswith("/cuenta"):
         return "cuenta"
