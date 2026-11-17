@@ -31,23 +31,30 @@ def precio_de_linea(linea: dict, unidades: int) -> int | None:
     return next((t["precio"] for t in escalas if unidades >= t["desde"]), None)
 
 
+def variante_de(linea: dict, lineas: list[dict]) -> dict:
+    """La variante «con parche y número» de una línea, o la misma línea si no tiene."""
+    return next((v for v in lineas if v.get("personalizadaDe") == linea["id"]), linea)
+
+
 def total_del_pedido(
-    items: list[tuple[list[str], int]],
+    items: list[tuple],
     lineas: list[dict],
     precio_general: Callable[[int], int | None],
 ) -> int | None:
-    """El total estimado de un pedido: [(categorías del modelo, cantidad)].
+    """El total estimado de un pedido: [(categorías del modelo, cantidad[, con parche y número])].
 
     None si alguna parte no tiene precio (una línea que no llegó a su primera escala, o
     modelos sin línea cuando la escala general tampoco los cubre): lo confirma una persona.
     """
     por_linea: dict[str, int] = {}
     sin_linea = 0
-    for cats, cantidad in items:
+    for cats, cantidad, *resto in items:
         l = linea_de(cats, lineas)
         if l is None:
             sin_linea += cantidad
         else:
+            if resto and resto[0]:
+                l = variante_de(l, lineas)
             por_linea[l["id"]] = por_linea.get(l["id"], 0) + cantidad
 
     total = 0

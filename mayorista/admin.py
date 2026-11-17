@@ -905,7 +905,7 @@ def crear_router(
     def _vista_de_pedido(p: dict, stock_actual: dict[tuple[int, str], int]) -> dict:
         datos = p["datos"]
         items = [
-            {"producto": i["producto"], "nombre": i.get("nombre") or nombre(i["producto"]), "talle": i["talle"], "cantidad": i["cantidad"],
+            {"producto": i["producto"], "nombre": i.get("nombre") or nombre(i["producto"]), "talle": i["talle"], "cantidad": i["cantidad"], "pers": bool(i.get("pers")),
              "hay": stock_actual.get((i["producto"], almacen.normalizar(i["talle"])), 0)}
             for i in datos["items"]
         ]

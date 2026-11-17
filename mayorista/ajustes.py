@@ -58,6 +58,9 @@ class Linea(BaseModel):
     cats: list[str] = Field(default=[], max_length=12)
     minimo: int = Field(ge=1, le=9999)
     tramos: list[Tramo] = Field(default=[], max_length=6)
+    # Si no está vacío, esta línea es la variante «con parche y número» de la línea con ese id:
+    # no tiene categorías propias; el cliente la elige camiseta por camiseta en el carrito.
+    personalizadaDe: str = Field(default="", max_length=20)
 
 
 class Regla(BaseModel):
@@ -115,6 +118,14 @@ def problemas(a: AjustesWeb) -> list[str]:
     for l in a.lineas:
         if len({t.desde for t in l.tramos}) != len(l.tramos):
             malos.append(f"La línea «{l.nombre}» tiene dos escalas que empiezan en la misma cantidad.")
+    ids = {l.id for l in a.lineas}
+    for l in a.lineas:
+        if l.personalizadaDe and (l.personalizadaDe not in ids or l.personalizadaDe == l.id):
+            malos.append(f"La línea «{l.nombre}» es la variante de una línea que no existe.")
+        elif l.personalizadaDe and next(o for o in a.lineas if o.id == l.personalizadaDe).personalizadaDe:
+            malos.append(f"La línea «{l.nombre}» no puede ser variante de otra variante.")
+        if l.personalizadaDe and l.cats:
+            malos.append(f"La línea «{l.nombre}» es una variante: no lleva categorías propias.")
     repetidas = sorted({c for i, l in enumerate(a.lineas) for c in l.cats if any(c in o.cats for o in a.lineas[:i])})
     if repetidas:
         malos.append("Una categoría no puede estar en dos líneas de precios: " + ", ".join(repetidas) + ".")
@@ -144,6 +155,7 @@ def por_defecto(negocio: dict, marca: str, whatsapp: str, tienda_url: str, limit
                 "id": l["id"],
                 "nombre": l["nombre"],
                 "cats": list(l.get("cats") or []),
+                "personalizadaDe": l.get("personalizadaDe") or "",
                 "minimo": int(l.get("minimo", minimo)),
                 "tramos": sorted(({"desde": int(t["desde"]), "precio": int(t["precio"])} for t in l.get("tramos") or []), key=lambda t: t["desde"]),
             }

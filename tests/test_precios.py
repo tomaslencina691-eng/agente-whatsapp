@@ -71,3 +71,32 @@ def test_lo_que_no_tiene_linea_ni_escala_general_se_confirma_con_una_persona():
 
 def test_un_pedido_vacio_no_cuesta_nada():
     assert precios.total_del_pedido([], LINEAS, sin_escala_general) == 0
+
+
+TOP_PERS = {"id": "top_pers", "nombre": "Top Quality con parche y número", "cats": [], "personalizadaDe": "top", "minimo": 6, "tramos": [{"desde": 6, "precio": 45000}, {"desde": 12, "precio": 42000}]}
+LINEAS_PERS = [TOP, TOP_PERS, G5, SHORTS]
+
+
+def test_una_camiseta_con_parche_y_numero_va_a_la_variante_de_su_linea():
+    assert precios.variante_de(TOP, LINEAS_PERS)["id"] == "top_pers"
+    assert precios.variante_de(G5, LINEAS_PERS)["id"] == "g5", "sin variante sigue en su línea"
+
+
+def test_las_lisas_y_las_de_parche_y_numero_se_cuentan_aparte():
+    # 6 lisas a 35.000 y 6 con parche y número a 45.000: no suman 12.
+    items = [(["jugador"], 6, False), (["retro"], 6, True)]
+    assert precios.total_del_pedido(items, LINEAS_PERS, sin_escala_general) == 6 * 35000 + 6 * 45000
+
+
+def test_doce_con_parche_y_numero_pagan_la_escala_de_doce():
+    assert precios.total_del_pedido([(["jugador"], 5, True), (["retro"], 7, True)], LINEAS_PERS, sin_escala_general) == 12 * 42000
+
+
+def test_la_variante_tambien_tiene_que_llegar_a_su_minimo():
+    assert precios.total_del_pedido([(["jugador"], 6, False), (["jugador"], 2, True)], LINEAS_PERS, sin_escala_general) is None
+
+
+def test_g5_tiene_un_tercer_precio_desde_40():
+    g5 = {**G5, "tramos": [{"desde": 6, "precio": 33500}, {"desde": 12, "precio": 26000}, {"desde": 40, "precio": 25500}]}
+    assert precios.precio_de_linea(g5, 39) == 26000
+    assert precios.precio_de_linea(g5, 40) == 25500

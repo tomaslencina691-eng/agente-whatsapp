@@ -6,41 +6,135 @@
   "lineas": [
     {
       "id": "top",
-      "nombre": "Top Quality 1:1 (Jugador / Retro)",
-      "cats": ["jugador", "retro"],
+      "nombre": "Top Quality 1-1 · Jugador / Retro (lisa)",
+      "cats": [
+        "jugador",
+        "retro"
+      ],
       "minimo": 6,
       "tramos": [
-        { "desde": 6, "precio": 35000 },
-        { "desde": 12, "precio": 30000 }
+        {
+          "desde": 6,
+          "precio": 35000
+        },
+        {
+          "desde": 12,
+          "precio": 30000
+        }
+      ]
+    },
+    {
+      "id": "top_pers",
+      "nombre": "Top Quality 1-1 · con parche y número",
+      "cats": [],
+      "personalizadaDe": "top",
+      "minimo": 6,
+      "tramos": [
+        {
+          "desde": 6,
+          "precio": 45000
+        },
+        {
+          "desde": 12,
+          "precio": 42000
+        }
       ]
     },
     {
       "id": "g5",
       "nombre": "G5",
-      "cats": ["g5", "fan"],
+      "cats": [
+        "g5",
+        "fan"
+      ],
       "minimo": 6,
       "tramos": [
-        { "desde": 6, "precio": 33500 },
-        { "desde": 12, "precio": 26500 }
+        {
+          "desde": 6,
+          "precio": 33500
+        },
+        {
+          "desde": 12,
+          "precio": 26000
+        },
+        {
+          "desde": 40,
+          "precio": 25500
+        }
       ]
     },
     {
       "id": "shorts",
       "nombre": "Shorts versión jugador",
-      "cats": ["shorts"],
+      "cats": [
+        "shorts"
+      ],
       "minimo": 6,
       "tramos": [
-        { "desde": 6, "precio": 35000 },
-        { "desde": 12, "precio": 33000 }
+        {
+          "desde": 6,
+          "precio": 35000
+        },
+        {
+          "desde": 12,
+          "precio": 33000
+        }
+      ]
+    },
+    {
+      "id": "shorts_num",
+      "nombre": "Shorts · con número",
+      "cats": [],
+      "personalizadaDe": "shorts",
+      "minimo": 6,
+      "tramos": [
+        {
+          "desde": 6,
+          "precio": 38000
+        },
+        {
+          "desde": 12,
+          "precio": 36000
+        }
       ]
     }
   ],
   "categorias": [
-    { "id": "jugador", "nombre": "Versión jugador", "tiendanube": ["VERSION JUGADOR"] },
-    { "id": "g5", "nombre": "G5", "tiendanube": ["G5"] },
-    { "id": "fan", "nombre": "Fan", "tiendanube": ["FAN"] },
-    { "id": "retro", "nombre": "Retro", "tiendanube": ["RETRO"] },
-    { "id": "shorts", "nombre": "Shorts", "tiendanube": ["SHORTS"] }
+    {
+      "id": "jugador",
+      "nombre": "Versión jugador",
+      "tiendanube": [
+        "VERSION JUGADOR"
+      ]
+    },
+    {
+      "id": "g5",
+      "nombre": "G5",
+      "tiendanube": [
+        "G5"
+      ]
+    },
+    {
+      "id": "fan",
+      "nombre": "Fan",
+      "tiendanube": [
+        "FAN"
+      ]
+    },
+    {
+      "id": "retro",
+      "nombre": "Retro",
+      "tiendanube": [
+        "RETRO"
+      ]
+    },
+    {
+      "id": "shorts",
+      "nombre": "Shorts",
+      "tiendanube": [
+        "SHORTS"
+      ]
+    }
   ],
   "reglas": [
     {
@@ -51,7 +145,7 @@
     {
       "etiqueta": "Personalizadas",
       "titulo": "Con parche y número",
-      "texto": "Jugador y retro con parche y número: 6 a $45.000 c/u, 12 a $42.000 c/u. Shorts con número: $3.000 más por unidad. Se piden por WhatsApp."
+      "texto": "En cada camiseta Top Quality o short podés tildar «con parche y número»: pasa a su propia escala (Top Quality 6 a $45.000 c/u, 12 a $42.000; shorts con número 6 a $38.000, 12 a $36.000). Las unidades con parche y número se cuentan aparte de las lisas."
     },
     {
       "etiqueta": "Envíos",

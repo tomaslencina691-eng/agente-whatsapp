@@ -47,7 +47,7 @@ LINEA_TOP = {"id": "top", "nombre": "Top Quality", "cats": ["jugador"], "minimo"
 def test_las_lineas_de_precios_salen_de_negocio_json_con_las_escalas_de_menor_a_mayor():
     d = ajustes.por_defecto({"lineas": [LINEA_G5]}, "SF", "549", "", True, 6, [])
 
-    assert d["lineas"] == [{"id": "g5", "nombre": "G5", "cats": ["g5"], "minimo": 6, "tramos": [{"desde": 6, "precio": 33500}, {"desde": 12, "precio": 26500}]}]
+    assert d["lineas"] == [{"id": "g5", "nombre": "G5", "cats": ["g5"], "personalizadaDe": "", "minimo": 6, "tramos": [{"desde": 6, "precio": 33500}, {"desde": 12, "precio": 26500}]}]
 
 
 def test_sin_lineas_en_negocio_json_no_hay_lineas():
@@ -113,3 +113,22 @@ def test_logos_que_no_sirven(datos):
 def test_la_huella_del_logo_cambia_con_la_imagen():
     assert ajustes.huella(PNG) != ajustes.huella(JPG)
     assert ajustes.huella(PNG) == ajustes.huella(PNG)
+
+
+VARIANTE_G5 = {"id": "g5_pers", "nombre": "G5 con número", "cats": [], "personalizadaDe": "g5", "minimo": 6, "tramos": [{"desde": 6, "precio": 40000}]}
+
+
+def test_una_variante_de_una_linea_que_existe_es_valida():
+    assert ajustes.problemas(base_de_ejemplo(lineas=[LINEA_G5, VARIANTE_G5])) == []
+
+
+def test_una_variante_de_una_linea_que_no_existe_es_un_problema():
+    assert any("no existe" in p for p in ajustes.problemas(base_de_ejemplo(lineas=[VARIANTE_G5])))
+
+
+def test_una_variante_no_lleva_categorias_propias():
+    assert any("no lleva categorías" in p for p in ajustes.problemas(base_de_ejemplo(lineas=[LINEA_G5, {**VARIANTE_G5, "cats": ["fan"]}])))
+
+
+def test_una_variante_no_puede_ser_variante_de_otra_variante():
+    assert any("otra variante" in p for p in ajustes.problemas(base_de_ejemplo(lineas=[LINEA_G5, VARIANTE_G5, {**VARIANTE_G5, "id": "g5_pers2", "personalizadaDe": "g5_pers"}])))

@@ -831,7 +831,7 @@ async function cargarPedidos(silencioso = false) {
 function tarjetaPedido(p) {
   const f = new Date(p.fecha).toLocaleString("es-AR", { dateStyle: "medium", timeStyle: "short" }), [et, clase] = ESTADO_PEDIDO[p.estado] || [p.estado, ""];
   const lineas = p.items.map((i) => { const corto = p.estado === "nuevo" && i.hay < i.cantidad;
-    return `<div>${esc(i.nombre)} · <b>${esc(i.talle)}</b>: pidió ${i.cantidad}${p.estado === "nuevo" ? ` · hay ${i.hay}` : ""}${corto ? ' <span class="falta-stock">(no alcanza)</span>' : ""}</div>`; }).join("");
+    return `<div>${esc(i.nombre)}${i.pers ? " <b>(con parche y número)</b>" : ""} · <b>${esc(i.talle)}</b>: pidió ${i.cantidad}${p.estado === "nuevo" ? ` · hay ${i.hay}` : ""}${corto ? ' <span class="falta-stock">(no alcanza)</span>' : ""}</div>`; }).join("");
   const quien = [p.nombre, p.negocio].filter(Boolean).map(esc).join(" · ");
   const botones = (p.estado === "nuevo" ? `<button class="btn fuerte chico" data-confirmar="${esc(p.codigo)}" ${p.falta ? "disabled title=\"No alcanza el stock\"" : ""}>Confirmar y descontar stock</button><button class="btn chico" data-cancelar="${esc(p.codigo)}">Cancelar</button>` : "")
     + (p.estado === "confirmado" ? `<button class="btn fuerte chico" data-despachar="${esc(p.codigo)}">Marcar como despachado</button><button class="btn chico" data-cancelar="${esc(p.codigo)}">Cancelar y devolver el stock</button>` : "");
@@ -1045,7 +1045,8 @@ function pintarLineasWeb() {
   $("wLineas").innerHTML = W.lineas.map((l, i) => `<div class="fila-edit">
     <div class="dos"><div class="campo"><label for="lN${i}">Nombre de la línea</label><input id="lN${i}" data-ln="${i}" maxlength="60" value="${esc(l.nombre)}"></div>
       <div class="campo"><label for="lM${i}">Mínimo (camisetas)</label><input id="lM${i}" type="number" min="1" inputmode="numeric" data-lm="${i}" value="${l.minimo}"></div></div>
-    <div class="campo"><label>Categorías que la forman</label><div class="categorias">${webCategorias.map((c) => `<label><input type="checkbox" data-lc="${i}" value="${esc(c.id)}" ${l.cats.includes(c.id) ? "checked" : ""}> ${esc(c.nombre)}</label>`).join("") || '<span class="ayuda">Todavía no hay filtros: armalos en «Modelos de la tienda».</span>'}</div></div>
+    <div class="campo"><label for="lV${i}">Tipo de línea</label><select id="lV${i}" data-lv="${i}"><option value="">Línea normal (se arma con categorías)</option>${W.lineas.filter((o, k) => k !== i && !o.personalizadaDe).map((o) => `<option value="${esc(o.id)}" ${l.personalizadaDe === o.id ? "selected" : ""}>Variante con parche y número de «${esc(o.nombre || "sin nombre")}»</option>`).join("")}</select></div>
+    ${l.personalizadaDe ? '<p class="ayuda">Esta línea no tiene categorías: el cliente la elige camiseta por camiseta («Con parche y número») y sus unidades se cuentan aparte.</p>' : `<div class="campo"><label>Categorías que la forman</label><div class="categorias">${webCategorias.map((c) => `<label><input type="checkbox" data-lc="${i}" value="${esc(c.id)}" ${l.cats.includes(c.id) ? "checked" : ""}> ${esc(c.nombre)}</label>`).join("") || '<span class="ayuda">Todavía no hay filtros: armalos en «Modelos de la tienda».</span>'}</div></div>`}
     ${l.tramos.map((t, j) => `<div class="dos"><div class="campo"><label for="lD${i}_${j}">Desde (camisetas)</label><input id="lD${i}_${j}" type="number" min="1" inputmode="numeric" data-lde="${i}:${j}" value="${t.desde}"></div>
       <div class="campo"><label for="lP${i}_${j}">Precio por camiseta ($)</label><input id="lP${i}_${j}" type="number" min="1" inputmode="numeric" data-lpr="${i}:${j}" value="${t.precio}"></div>
       <div><button class="btn chico" data-lqt="${i}:${j}" type="button">Quitar escala</button></div></div>`).join("")}
@@ -1061,6 +1062,10 @@ $("wLineas").addEventListener("input", (e) => {
   refrescarWeb();
 });
 $("wLineas").addEventListener("change", (e) => {
+  if (e.target.dataset.lv !== undefined) {
+    const l = W.lineas[e.target.dataset.lv]; l.personalizadaDe = e.target.value; if (l.personalizadaDe) l.cats = [];
+    pintarLineasWeb(); refrescarWeb(); return;
+  }
   const i = e.target.dataset.lc; if (i === undefined) return;
   const cats = new Set(W.lineas[i].cats); if (e.target.checked) cats.add(e.target.value); else cats.delete(e.target.value);
   W.lineas[i].cats = [...cats]; refrescarWeb();
@@ -1075,7 +1080,7 @@ $("wLineas").addEventListener("click", (e) => {
 });
 $("wLineaMas").addEventListener("click", () => {
   if (W.lineas.length >= 8) { aviso("Son hasta 8 líneas."); return; }
-  W.lineas.push({ id: "l" + Date.now().toString(36).slice(-7), nombre: "", cats: [], minimo: W.minimo || 6, tramos: [] }); pintarLineasWeb(); refrescarWeb();
+  W.lineas.push({ id: "l" + Date.now().toString(36).slice(-7), nombre: "", cats: [], personalizadaDe: "", minimo: W.minimo || 6, tramos: [] }); pintarLineasWeb(); refrescarWeb();
 });
 /* reglas */
 function pintarReglasWeb() {

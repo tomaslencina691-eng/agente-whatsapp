@@ -474,6 +474,7 @@ class LineaPedido(BaseModel):
     producto: int
     talle: str = Field(min_length=1, max_length=40)
     cantidad: int = Field(ge=1, le=999)
+    pers: bool = False  # con parche y número (otra línea de precios)
 
 
 class PedidoNuevo(BaseModel):
@@ -507,7 +508,7 @@ def _total_estimado(items: list[dict], unidades: int) -> int | None:
         precio = precio_unidad(unidades)
         return precio * unidades if precio else None
     cats = {p["id"]: categorias_de(p) for p in _cache["productos"] or []}
-    return precios.total_del_pedido([(cats.get(i["producto"], []), i["cantidad"]) for i in items], lineas, precio_unidad)
+    return precios.total_del_pedido([(cats.get(i["producto"], []), i["cantidad"], bool(i.get("pers"))) for i in items], lineas, precio_unidad)
 
 
 @app.post("/api/pedido")
@@ -522,7 +523,7 @@ def api_pedido(datos: PedidoNuevo, request: Request) -> dict:
 
     nombres = {p["id"]: nombre_limpio((p.get("name") or {}).get("es") or "") for p in _cache["productos"] or []}
     items = [
-        {"producto": i.producto, "talle": almacen.limpiar_talle(i.talle), "cantidad": i.cantidad, "nombre": nombres.get(i.producto) or f"Modelo {i.producto}"}
+        {"producto": i.producto, "talle": almacen.limpiar_talle(i.talle), "cantidad": i.cantidad, "nombre": nombres.get(i.producto) or f"Modelo {i.producto}", **({"pers": True} if i.pers else {})}
         for i in datos.items
     ]
     unidades = sum(i["cantidad"] for i in items)
