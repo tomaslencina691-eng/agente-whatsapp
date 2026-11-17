@@ -175,6 +175,33 @@ tr.sin-stock .nombre { color: var(--suave); }
 .etq.verde { color: var(--mostaza-claro); border-color: var(--mostaza); }
 .contador { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; margin-left: 6px; border-radius: 10px; background: var(--mostaza); color: var(--tinta); font-size: 11px; font-weight: 800; }
 
+
+/* personas con acceso */
+.personas { display: grid; gap: 10px; }
+.persona { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 4px 12px; align-items: center; background: var(--noche-2); border: 1px solid var(--linea); border-radius: 14px; padding: 12px; }
+.persona.off { opacity: .65; }
+.avatar { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: var(--pino); color: var(--mostaza-claro); font: 800 20px/1 var(--display); text-transform: uppercase; grid-row: span 2; }
+.persona .quien { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; min-width: 0; }
+.persona .quien b { font-size: 16px; overflow-wrap: anywhere; }
+.persona .ultimo { color: var(--suave); font-size: 12.5px; }
+.persona .controles { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding-top: 8px; border-top: 1px solid var(--linea); margin-top: 6px; }
+.persona .controles select { flex: 1 1 200px; background: var(--noche); border: 1.5px solid var(--linea); border-radius: 10px; padding: 6px 10px; min-height: 36px; }
+.alta { display: grid; gap: 16px; background: var(--noche-2); border: 1.5px dashed color-mix(in srgb, var(--mostaza) 60%, transparent); border-radius: 16px; padding: 16px; }
+.alta h3 { margin: 0; font: 800 22px/1 var(--display); text-transform: uppercase; }
+.paso-alta { display: grid; gap: 8px; }
+.paso-alta > .titulo { display: flex; align-items: center; gap: 8px; font-weight: 700; }
+.paso-alta > .titulo i { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--mostaza); color: var(--tinta); font: 800 12px/1 var(--cuerpo); font-style: normal; }
+.roles { display: grid; gap: 8px; }
+.rol-op { display: flex; gap: 10px; align-items: flex-start; background: var(--noche); border: 1.5px solid var(--linea); border-radius: 12px; padding: 10px 12px; cursor: pointer; min-height: 48px; }
+.rol-op:has(input:checked) { border-color: var(--mostaza); background: color-mix(in srgb, var(--mostaza) 9%, var(--noche)); }
+.rol-op input { margin-top: 3px; width: 18px; height: 18px; accent-color: var(--mostaza); flex: none; }
+.rol-op b { display: block; }
+.rol-op small { display: block; color: var(--suave); }
+.clave-fila { display: flex; gap: 8px; flex-wrap: wrap; }
+.clave-fila input { flex: 1 1 180px; background: var(--noche); border: 1.5px solid var(--linea); border-radius: 10px; padding: 10px 12px; min-height: 44px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.credenciales { display: grid; gap: 8px; background: color-mix(in srgb, var(--mostaza) 10%, var(--noche)); border: 1.5px solid var(--mostaza); border-radius: 14px; padding: 14px; }
+.credenciales pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 600 14px/1.6 ui-monospace, Menlo, Consolas, monospace; }
+
 /* ventanas */
 .velo { position: fixed; inset: 0; background: rgba(5, 12, 8, .75); z-index: 80; display: none; }
 .velo.on { display: block; }
@@ -190,6 +217,36 @@ tr.sin-stock .nombre { color: var(--suave); }
 .toast { position: fixed; z-index: 100; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--crema); color: var(--tinta); border-radius: 999px; padding: 10px 18px; font-weight: 800; max-width: calc(100% - 24px); box-shadow: 0 8px 30px rgba(0, 0, 0, .4); }
 .ayuda { color: var(--suave); font-size: 13px; margin: 0; }
 @media (max-width: 720px) { .top .wrap { gap: 8px; } .pestanas { margin-left: 0; width: 100%; } .tabla-caja { max-height: none; } th.modelo, td.modelo { min-width: 190px; } }
+@media (max-width: 720px) {
+  .top .wrap { gap: 6px 10px; }
+  .marca { font-size: 20px; } .marca small { display: none; }
+  .usuario { display: none; }
+  /* las pestañas pasan a una sola fila que se desliza con el dedo, en vez de apilarse en cuatro filas */
+  .pestanas { order: 5; flex-wrap: nowrap; overflow-x: auto; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; scrollbar-width: none; margin: 0 -14px; padding: 0 14px 4px; width: calc(100% + 28px); }
+  .pestanas::-webkit-scrollbar { display: none; }
+  .pestana { flex: none; scroll-snap-align: start; white-space: nowrap; padding: 8px 12px; min-height: 44px; }
+  .btn { min-height: 44px; } .btn.chico { min-height: 40px; padding: 6px 12px; }
+  .campo input, .campo select, .campo textarea, .herramientas select, .herramientas input[type="search"] { font-size: 16px; min-height: 44px; }
+  .herramientas { gap: 8px; } .herramientas input[type="search"] { width: 100%; }
+  .herramientas .btn { flex: 1 1 140px; }
+  .herramientas select { flex: 1 1 100%; max-width: 100%; min-width: 0; }
+  .panel { padding-block: 14px 80px; } .panel h2 { font-size: 26px; } .grupo { padding: 14px; }
+  /* tarjetas de pedido: los botones ocupan el ancho, uno debajo del otro */
+  .lote header { gap: 6px 10px; }
+  .lote header > .btn { flex: 1 1 100%; }
+  .lote header .espacio { display: none; }
+  .persona .controles .btn { flex: 1 1 88px; padding-inline: 8px; }
+  /* la planilla: sin la columna de la foto y con el nombre más angosto, para que entren más talles en pantalla */
+  table { min-width: 0; } thead th:nth-child(2), td.foto { display: none; }
+  th.modelo, td.modelo { min-width: 132px; max-width: 150px; font-size: 13px; }
+  .celda { width: 50px; min-height: 40px; }
+  td.otras { min-width: 120px; }
+  .alta .btn, .alta .acciones .btn { width: 100%; }
+  .ventana { top: auto; bottom: 0; left: 0; transform: none; width: 100%; max-height: 92%; border-radius: 18px 18px 0 0; padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px)); }
+  .barra-web { flex-direction: column; align-items: stretch; }
+  .barra-web .btn { width: 100%; }
+  .toast { bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
+}
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
@@ -454,17 +511,25 @@ tr.sin-stock .nombre { color: var(--suave); }
 
     <div class="grupo" id="cuPersonas" hidden>
       <b>Personas con acceso</b>
-      <p class="ayuda">Cada persona entra con su propio usuario y clave, y ve solo lo que le corresponde. Si le quitás el acceso o le cambiás el rol, rige al instante.</p>
-      <div id="cuLista" style="display:grid;gap:8px"></div>
-      <b style="margin-top:6px">Sumar a alguien</b>
-      <div class="dos">
-        <div class="campo"><label for="cuUsuario">Usuario</label><input id="cuUsuario" maxlength="30" autocomplete="off" placeholder="pablo"><span class="ayuda">Letras, números, punto, guion. Sin espacios.</span></div>
-        <div class="campo"><label for="cuRol">Qué puede hacer</label><select id="cuRol"></select></div>
-        <div class="campo"><label for="cuClave">Clave inicial</label><input id="cuClave" maxlength="200" autocomplete="off"><span class="ayuda">Anotala y pasásela: después no se vuelve a mostrar.</span></div>
-        <div style="display:flex;align-items:end"><button class="btn" id="cuGenerar" type="button">Generar una clave</button></div>
-      </div>
-      <div class="acciones" style="justify-content:flex-start"><button class="btn fuerte" id="cuAlta" type="button">Dar de alta</button></div>
-      <div class="mensaje" id="cuMsgAlta" role="status"></div>
+      <p class="ayuda">Cada persona entra con su propio usuario y clave y ve solo lo que le corresponde. Si le quitás el acceso o le cambiás lo que puede hacer, rige al instante.</p>
+      <div class="personas" id="cuLista"></div>
+
+      <form class="alta" id="cuAltaForm" autocomplete="off">
+        <h3>Sumar a alguien</h3>
+        <div class="paso-alta"><div class="titulo"><i>1</i> ¿Cómo se llama su usuario?</div>
+          <div class="campo"><input id="cuUsuario" maxlength="30" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="pablo" aria-label="Usuario"><span class="ayuda">Letras, números, punto o guion. Sin espacios.</span></div></div>
+        <div class="paso-alta"><div class="titulo"><i>2</i> ¿Qué puede hacer?</div><div class="roles" id="cuRoles" role="radiogroup" aria-label="Qué puede hacer"></div></div>
+        <div class="paso-alta"><div class="titulo"><i>3</i> Clave inicial</div>
+          <div class="clave-fila"><input id="cuClave" maxlength="200" autocomplete="off" spellcheck="false" aria-label="Clave inicial" placeholder="Al menos 10 caracteres"><button class="btn" id="cuGenerar" type="button">Generar una</button></div>
+          <span class="ayuda">Después no se vuelve a mostrar: al dar de alta te muestro todo junto para copiarlo y pasárselo.</span></div>
+        <div class="mensaje" id="cuMsgAlta" role="status"></div>
+        <button class="btn fuerte" id="cuAlta" type="submit">Dar de alta</button>
+        <div class="credenciales" id="cuCredenciales" hidden>
+          <b>Listo. Pasale estos datos (no se vuelven a mostrar):</b>
+          <pre id="cuCredTexto"></pre>
+          <div class="acciones" style="justify-content:flex-start"><button class="btn fuerte chico" id="cuCredCopiar" type="button">Copiar</button><button class="btn chico" id="cuCredCerrar" type="button">Ya los anoté</button></div>
+        </div>
+      </form>
     </div>
 
     <div class="grupo">
@@ -1250,17 +1315,24 @@ async function cargarCuenta() {
   $("cuConexiones").innerHTML = CUENTA.conexiones.map((c) => `<div class="lote" style="padding:8px 12px"><header><b>${esc(c.nombre)}</b><span class="etq ${c.estado === "ok" ? "verde" : c.estado === "error" ? "oculto" : ""}">${c.estado === "ok" ? "Conectado" : c.estado === "error" ? "Con problemas" : "Pendiente"}</span></header><div class="detalle"><div>${esc(c.detalle)}</div></div></div>`).join("");
   $("cuPersonas").hidden = !CUENTA.esDuenio; $("cuAvisos").hidden = !CUENTA.esDuenio;
   if (!CUENTA.esDuenio) return;
-  $("cuRol").innerHTML = CUENTA.roles.map((r) => `<option value="${r.id}">${esc(r.nombre)}</option>`).join("");
+  pintarRolesAlta();
   pintarPersonas();
   const a = CUENTA.avisos;
   $("avPedido").checked = a.pedidoNuevo; $("avPocas").checked = a.pocasUnidades; $("avUmbral").value = a.umbral; $("avNuevos").checked = a.modelosNuevos; $("avFalla").checked = a.fallasDeLaTienda;
   $("cuAvisosPara").textContent = CUENTA.avisosPara ? `Los avisos llegan a ${CUENTA.avisosPara} (se cambia en la pestaña Agente, «Mail de avisos»).` : "Todavía no hay un mail de avisos: cargalo en la pestaña Agente y conectá el correo del agente.";
 }
+/* Qué ve cada rol, en cristiano, para elegir sin dudar. */
+const ROL_DESC = { todo: "Stock, pedidos, tienda, web y agente. No puede sumar ni quitar personas.", stock_web: "Stock, pedidos, tienda y la web mayorista. Sin el agente.", stock: "Solo la planilla de stock, los pedidos y el historial." };
+function pintarRolesAlta() {
+  const marcado = (document.querySelector('input[name="cuRolAlta"]:checked') || {}).value || "stock";
+  $("cuRoles").innerHTML = CUENTA.roles.map((r) => `<label class="rol-op"><input type="radio" name="cuRolAlta" value="${esc(r.id)}" ${r.id === marcado ? "checked" : ""}><span><b>${esc(r.nombre)}</b><small>${esc(ROL_DESC[r.id] || "")}</small></span></label>`).join("");
+}
 function pintarPersonas() {
-  $("cuLista").innerHTML = CUENTA.personas.length ? CUENTA.personas.map((p) => `<div class="lote" style="padding:8px 12px"><header><b>${esc(p.usuario)}</b>${p.activo ? "" : '<span class="etq oculto">Desactivada</span>'}
-    <select data-rol-de="${esc(p.usuario)}" aria-label="Rol de ${esc(p.usuario)}" style="background:var(--noche);border:1.5px solid var(--linea);border-radius:8px;padding:4px 8px">${CUENTA.roles.map((r) => `<option value="${r.id}" ${r.id === p.rol ? "selected" : ""}>${esc(r.nombre)}</option>`).join("")}</select>
-    <span class="espacio"></span><span>Último ingreso: ${esc(cuando(p.ultimoIngreso))}</span></header>
-    <div class="acciones" style="justify-content:flex-start"><button class="btn chico" data-activar="${esc(p.usuario)}" data-a="${p.activo ? 0 : 1}" type="button">${p.activo ? "Desactivar" : "Activar"}</button><button class="btn chico" data-nueva-clave="${esc(p.usuario)}" type="button">Poner una clave nueva</button><button class="btn chico" data-quitar-persona="${esc(p.usuario)}" type="button">Quitar</button></div></div>`).join("") : '<p class="ayuda">Todavía no sumaste a nadie: solo entrás vos.</p>';
+  $("cuLista").innerHTML = CUENTA.personas.length ? CUENTA.personas.map((p) => `<div class="persona ${p.activo ? "" : "off"}"><div class="avatar" aria-hidden="true">${esc(p.usuario.charAt(0))}</div>
+    <div class="quien"><b>${esc(p.usuario)}</b>${p.activo ? "" : '<span class="etq oculto">Desactivada</span>'}</div>
+    <div class="ultimo">Último ingreso: ${esc(cuando(p.ultimoIngreso))}</div>
+    <div class="controles"><select data-rol-de="${esc(p.usuario)}" aria-label="Qué puede hacer ${esc(p.usuario)}">${CUENTA.roles.map((r) => `<option value="${r.id}" ${r.id === p.rol ? "selected" : ""}>${esc(r.nombre)}</option>`).join("")}</select>
+      <button class="btn chico" data-activar="${esc(p.usuario)}" data-a="${p.activo ? 0 : 1}" type="button">${p.activo ? "Desactivar" : "Activar"}</button><button class="btn chico" data-nueva-clave="${esc(p.usuario)}" type="button">Clave nueva</button><button class="btn chico" data-quitar-persona="${esc(p.usuario)}" type="button">Quitar</button></div></div>`).join("") : '<p class="ayuda">Todavía no sumaste a nadie: solo entrás vos.</p>';
 }
 $("cuCambiarClave").addEventListener("click", async () => {
   const msg = $("cuMsgClave"); msg.className = "mensaje"; msg.textContent = "";
@@ -1269,15 +1341,26 @@ $("cuCambiarClave").addEventListener("click", async () => {
   catch (e) { msg.textContent = e.message; }
 });
 $("cuGenerar").addEventListener("click", () => { $("cuClave").value = claveAlAzar(); });
-$("cuAlta").addEventListener("click", async () => {
-  const msg = $("cuMsgAlta"); msg.className = "mensaje"; msg.textContent = "";
+$("cuAltaForm").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const msg = $("cuMsgAlta"); msg.className = "mensaje"; msg.textContent = ""; $("cuCredenciales").hidden = true;
+  const usuario = $("cuUsuario").value.trim(), clave = $("cuClave").value, rol = (document.querySelector('input[name="cuRolAlta"]:checked') || {}).value;
+  if (!usuario) { msg.textContent = "Falta el usuario."; $("cuUsuario").focus(); return; }
+  if (!clave) { msg.textContent = "Falta la clave inicial: escribí una o tocá «Generar una»."; return; }
+  $("cuAlta").disabled = true;
   try {
-    const usuario = $("cuUsuario").value.trim(), clave = $("cuClave").value;
-    await api("/usuarios", { metodo: "POST", cuerpo: { usuario, clave, rol: $("cuRol").value } });
-    msg.className = "mensaje ok"; msg.textContent = `Listo: ${usuario.toLowerCase()} ya puede entrar con la clave que pusiste. Anotala y pasásela.`;
+    await api("/usuarios", { metodo: "POST", cuerpo: { usuario, clave, rol } });
+    const nombreRol = (CUENTA.roles.find((r) => r.id === rol) || {}).nombre || rol;
+    $("cuCredTexto").textContent = `Panel: ${location.origin}/admin\nUsuario: ${usuario.toLowerCase()}\nClave: ${clave}\nPuede: ${nombreRol}`;
+    $("cuCredenciales").hidden = false; $("cuCredenciales").scrollIntoView({ block: "nearest", behavior: "smooth" });
     $("cuUsuario").value = ""; $("cuClave").value = ""; CUENTA = await api("/cuenta"); pintarPersonas();
   } catch (e) { msg.textContent = e.message; }
+  finally { $("cuAlta").disabled = false; }
 });
+$("cuCredCopiar").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText($("cuCredTexto").textContent); aviso("Copiado."); } catch (e) { aviso("No se pudo copiar: seleccionalo y copialo a mano."); }
+});
+$("cuCredCerrar").addEventListener("click", () => { $("cuCredenciales").hidden = true; $("cuCredTexto").textContent = ""; });
 $("cuLista").addEventListener("change", async (e) => {
   const u = e.target.dataset.rolDe; if (!u) return;
   try { await api(`/usuarios/${encodeURIComponent(u)}`, { metodo: "PUT", cuerpo: { rol: e.target.value } }); aviso(`Cambió lo que puede hacer ${u}.`); CUENTA = await api("/cuenta"); pintarPersonas(); } catch (err) { alert(err.message); cargarCuenta(); }
