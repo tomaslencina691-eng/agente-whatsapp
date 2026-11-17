@@ -181,6 +181,18 @@ def test_con_stock_del_mayorista_los_talles_y_las_unidades_salen_de_ahi():
     assert "Sin stock" not in texto
 
 
+def test_el_resultado_dice_las_categorias_para_saber_a_que_linea_mayorista_pertenece():
+    p = camiseta(1, "Milan tercera 26/27", categories=[{"name": {"es": "G5"}}, {"name": {"es": "MILAN"}}])
+
+    texto = herramientas._describir_producto(p, {1: {"M": 3}})
+
+    assert "Categorías: G5, MILAN" in texto
+
+
+def test_sin_categorias_el_resultado_no_trae_esa_linea():
+    assert "Categorías" not in herramientas._describir_producto(camiseta(1, "Boca"), {1: {"M": 3}})
+
+
 def test_un_modelo_de_la_tienda_que_no_esta_en_el_mayorista_no_se_ofrece():
     texto = herramientas._describir_producto(camiseta(2, "River Plate"), {1: {"M": 3}})
 

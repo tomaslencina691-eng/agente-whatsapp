@@ -620,6 +620,10 @@ def _describir_producto(p: dict, stock: dict[int, dict[str, int]] | None = None)
     )
 
     lineas = [f"{nombre} — ${precio}" if precio else nombre]
+    # Las categorías dicen a qué línea mayorista pertenece (G5, jugador/retro, shorts): de ahí sale el precio.
+    categorias = [c for c in ((x.get("name") or {}).get("es", "") for x in p.get("categories") or []) if c]
+    if categorias:
+        lineas.append("Categorías: " + ", ".join(categorias))
     if link:
         lineas.append(f"Link: {link}")
     foto = _foto_de(p)

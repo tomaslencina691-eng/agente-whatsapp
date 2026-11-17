@@ -579,6 +579,89 @@ def test_el_total_estimado_usa_los_precios_del_panel(cliente, monkeypatch, propi
     assert propio.pedido("A-7K3QX")["total"] == 4000
 
 
+# -- Precios por línea (G5, Top Quality, Shorts) ----------------------------------------
+
+LINEA_G5 = {"id": "g5", "nombre": "G5", "cats": ["g5"], "minimo": 6, "tramos": [{"desde": 6, "precio": 33500}, {"desde": 12, "precio": 26500}]}
+LINEA_TOP = {"id": "top", "nombre": "Top Quality", "cats": ["jugador", "retro"], "minimo": 6, "tramos": [{"desde": 6, "precio": 35000}, {"desde": 12, "precio": 30000}]}
+
+
+@pytest.fixture
+def con_lineas(monkeypatch, propio):
+    """Tres modelos: 1 es G5, 2 es Top Quality, 3 no tiene categoría. Y las dos líneas guardadas."""
+    cats = {1: ["g5"], 2: ["jugador"], 3: []}
+    monkeypatch.setattr(servidor, "categorias_de", lambda p: cats[p["id"]])
+    monkeypatch.setattr(servidor, "_traer_productos", lambda: [producto(id=1), producto(id=2), producto(id=3)])
+    propio.cargar([(1, "M", 20), (2, "M", 20), (3, "M", 20)])
+    guardar_web(propio, lineas=[LINEA_TOP, LINEA_G5], tramos=[])
+    return propio
+
+
+def test_la_web_recibe_las_lineas_con_las_escalas_de_mayor_a_menor(cliente, con_lineas):
+    d = cliente.get("/api/catalogo").json()
+
+    assert [l["id"] for l in d["lineas"]] == ["top", "g5"]
+    assert d["lineas"][1]["tramos"] == [{"desde": 12, "precio": 26500}, {"desde": 6, "precio": 33500}]
+    assert d["lineas"][1]["minimo"] == 6
+
+
+def test_cada_modelo_sabe_a_que_linea_pertenece(cliente, con_lineas):
+    productos = {p["id"]: p["linea"] for p in cliente.get("/api/catalogo").json()["productos"]}
+
+    assert productos == {1: "g5", 2: "top", 3: None}
+
+
+def test_con_los_precios_ocultos_las_lineas_van_sin_escalas_pero_con_su_minimo(cliente, con_lineas):
+    guardar_web(con_lineas, lineas=[LINEA_TOP, LINEA_G5], ocultarPrecios=True)
+
+    lineas = cliente.get("/api/catalogo").json()["lineas"]
+
+    assert [l["tramos"] for l in lineas] == [[], []]
+    assert [l["minimo"] for l in lineas] == [6, 6]
+
+
+def test_sin_lineas_la_web_sigue_con_la_escala_unica(cliente, monkeypatch, propio):
+    monkeypatch.setattr(servidor, "_traer_productos", lambda: [producto()])
+    propio.cargar([(1, "M", 3)])
+
+    d = cliente.get("/api/catalogo").json()
+
+    assert d["lineas"] == [] and d["productos"][0]["linea"] is None
+
+
+def test_el_total_de_un_pedido_se_calcula_por_linea(cliente, con_lineas):
+    cliente.get("/api/catalogo")  # trae los modelos
+    items = [{"producto": 1, "talle": "M", "cantidad": 6}, {"producto": 2, "talle": "M", "cantidad": 6}]
+
+    cliente.post("/api/pedido", json=pedido_web(items=items))
+
+    assert con_lineas.pedido("A-7K3QX")["total"] == 6 * 33500 + 6 * 35000, "6 G5 y 6 Top Quality no se mezclan en la escala de 12"
+
+
+def test_doce_de_la_misma_linea_pagan_la_escala_de_doce(cliente, con_lineas):
+    cliente.get("/api/catalogo")
+
+    cliente.post("/api/pedido", json=pedido_web(items=[{"producto": 1, "talle": "M", "cantidad": 12}]))
+
+    assert con_lineas.pedido("A-7K3QX")["total"] == 12 * 26500
+
+
+def test_un_pedido_con_una_linea_bajo_su_minimo_queda_sin_total(cliente, con_lineas):
+    cliente.get("/api/catalogo")
+    items = [{"producto": 1, "talle": "M", "cantidad": 6}, {"producto": 2, "talle": "M", "cantidad": 3}]
+
+    cliente.post("/api/pedido", json=pedido_web(items=items))
+
+    assert con_lineas.pedido("A-7K3QX")["total"] is None
+
+
+def test_un_modelo_sin_linea_y_sin_escala_general_deja_el_total_a_confirmar(cliente, con_lineas):
+    cliente.get("/api/catalogo")
+
+    cliente.post("/api/pedido", json=pedido_web(items=[{"producto": 3, "talle": "M", "cantidad": 6}]))
+
+    assert con_lineas.pedido("A-7K3QX")["total"] is None
+
+
 def test_el_logo_subido_en_el_panel_reemplaza_al_de_la_carpeta(cliente, propio):
     estatico = cliente.get("/logo.webp")
     assert estatico.status_code == 200 and estatico.headers["content-type"].startswith("image/webp")

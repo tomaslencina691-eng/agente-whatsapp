@@ -108,6 +108,15 @@ a { color: inherit; }
 .cartel .monto small { font-family: var(--cuerpo); font-size: 14px; font-weight: 700; color: var(--gris-oscuro); margin-left: 4px; }
 .cartel.mejor { outline: 3px solid var(--verde); }
 .cartel .mejor-tag { position: absolute; top: -13px; right: 18px; background: var(--verde); color: var(--negro); font-size: 11px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; padding: 4px 10px; border-radius: 4px; }
+/* precios por línea (G5, Top Quality, Shorts): un cartel por línea con sus escalas */
+.linea-precios { background: var(--blanco); color: var(--negro); border-radius: 18px; padding: 14px 22px 16px; box-shadow: 0 14px 34px rgba(0, 0, 0, .4); }
+.linea-precios h3 { margin: 0 0 8px; font-family: var(--display); font-size: 22px; line-height: 1.05; text-transform: uppercase; overflow-wrap: anywhere; }
+.linea-precios .escalas { display: flex; gap: 8px 28px; flex-wrap: wrap; }
+.linea-precios .escalas span { display: grid; gap: 2px; font-size: 12px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+.linea-precios .escalas b { font-family: var(--display); font-size: 40px; font-weight: 800; letter-spacing: 0; line-height: 1; }
+.linea-precios .escalas small { font-family: var(--cuerpo); font-size: 13px; font-weight: 700; color: var(--gris-oscuro); margin-left: 4px; }
+.grupo-ped { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; margin-top: 6px; font-size: 13px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--verde); }
+.grupo-ped span { color: var(--gris); font-weight: 700; letter-spacing: 0; text-transform: none; }
 .minimo { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-top: 14px;
   border: 1.5px solid color-mix(in srgb, var(--verde) 50%, transparent); border-radius: 18px; padding: 14px 22px; background: rgba(14, 14, 16, .6); }
 .minimo > span { font-size: 13px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--gris); }
@@ -268,7 +277,7 @@ a { color: inherit; }
   </div>
   <div>
     <div class="carteles" id="carteles" aria-label="Precios por cantidad" hidden></div>
-    <div class="minimo" id="minimoCartel" hidden><span>Pedido mínimo</span><b><span id="minimoNum"></span> camisetas</b></div>
+    <div class="minimo" id="minimoCartel" hidden><span>Pedido mínimo</span><b><span id="minimoNum"></span> <span id="minimoSufijo">camisetas</span></b></div>
   </div>
 </div></section>
 
@@ -329,7 +338,7 @@ a { color: inherit; }
 
 <script>
 /* La configuración y los productos vienen del servidor (/api/catalogo). */
-let CFG = { tramos: [], minimo: 6, limitarStock: true, mostrarUnidades: true, whatsapp: "", marca: "", filtroVersion: true, mensaje: "", pausa: false };
+let CFG = { tramos: [], lineas: [], minimo: 6, limitarStock: true, mostrarUnidades: true, whatsapp: "", marca: "", filtroVersion: true, mensaje: "", pausa: false };
 let CATS = [["todas", "Todas"]];
 const VERS = [["todas", "Todas"], ["jugador", "Versión jugador"], ["fan", "Versión fan"]];
 let NOMBRE_CAT = {};
@@ -355,6 +364,29 @@ function guardar() { try { localStorage.setItem("mayorista-pedido", JSON.stringi
 const unidadesDe = (id) => Object.values(pedido[id] || {}).reduce((a, b) => a + b, 0);
 const total = () => Object.keys(pedido).reduce((a, id) => a + unidadesDe(id), 0);
 function precioUnidad(n) { const t = CFG.tramos.find((t) => n >= t.desde); return t ? t.precio : null; }
+
+/* Precios por línea (misma cuenta que precios.py). Las unidades se cuentan dentro de cada línea:
+   no se mezclan calidades, sí modelos. Cada línea del pedido tiene que llegar a su mínimo.
+   Sin líneas, rige la escala única de siempre. */
+const lineaClave = (id) => ((porId.get(Number(id)) || {}).linea) || "";
+const idsDe = (k) => Object.keys(pedido).filter((id) => lineaClave(id) === k);
+function grupos() {
+  const salida = [];
+  const sumar = (k, nombre, minimo, tramos) => {
+    const ids = idsDe(k), n = ids.reduce((a, id) => a + unidadesDe(id), 0); if (!n) return;
+    const t = tramos.find((t) => n >= t.desde), proximo = tramos.slice().reverse().find((t) => n < t.desde);
+    salida.push({ k, nombre, ids, n, minimo, precio: t ? t.precio : null, proximo: proximo || null, falta: Math.max(0, minimo - n) });
+  };
+  CFG.lineas.forEach((l) => sumar(l.id, l.nombre, l.minimo, l.tramos));
+  sumar("", CFG.lineas.length ? "Otros modelos" : "Pedido", CFG.minimo, CFG.tramos);
+  return salida;
+}
+/* El total estimado: null si alguna parte no tiene precio (lo confirma una persona). */
+function totalPrecio() {
+  const gs = grupos(); if (!gs.length || gs.some((g) => g.precio == null)) return null;
+  return gs.reduce((a, g) => a + g.precio * g.n, 0);
+}
+const puedeEnviar = () => !CFG.pausa && total() > 0 && (CFG.lineas.length ? grupos().every((g) => !g.falta) : total() >= CFG.minimo);
 const detalleTalles = (m) => Object.entries(m).filter(([, n]) => n > 0).map(([t, n]) => `${t} x${n}`).join(", ");
 const nombreVersion = (v) => (v === "jugador" ? "Versión jugador" : "Versión fan");
 const maximoDe = (t) => (CFG.limitarStock ? t.stock : 99);
@@ -475,10 +507,16 @@ function renderMensaje(plantilla, v) {
   return lineas.map((l) => l.replace(/\{([a-z]+)\}/g, (_, k) => (v[k] == null ? "" : v[k]))).join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 function mensaje() {
-  const d = datos(); const n = total(); const pu = precioUnidad(n);
-  const lineas = Object.keys(pedido).map((id, i) => { const p = porId.get(Number(id)); const e = etiquetaCorta(p); return `${i + 1}) ${p.nombre}${e ? ` (${e})` : ""}\n   ${detalleTalles(pedido[id])}`; });
-  return renderMensaje(CFG.mensaje, { marca: CFG.marca, codigo: codigoActual(), nombre: d.nombre, negocio: d.negocio, pedido: lineas.join("\n"),
-    unidades: `${n} ${n === 1 ? "camiseta" : "camisetas"}`, precio: pu ? peso(pu) : "", total: pu ? peso(pu * n) : "", notas: d.notas, condiciones: CONDICIONES });
+  const d = datos(); const n = total(); const conLineas = CFG.lineas.length > 0;
+  const pu = conLineas ? null : precioUnidad(n), tp = conLineas ? totalPrecio() : (pu ? pu * n : null);
+  const renglon = (id, i) => { const p = porId.get(Number(id)); const e = etiquetaCorta(p); return `${i}) ${p.nombre}${e ? ` (${e})` : ""}\n   ${detalleTalles(pedido[id])}`; };
+  let i = 0, cuerpo;
+  if (conLineas) {
+    /* Con líneas, cada una va con su cabecera: cantidad, precio y subtotal. Así el equipo ve qué escala se aplicó. */
+    cuerpo = grupos().map((g) => `*${g.nombre} · ${g.n} u.${g.precio != null ? ` × ${peso(g.precio)} = ${peso(g.precio * g.n)}` : ""}*\n` + g.ids.map((id) => renglon(id, ++i)).join("\n")).join("\n\n");
+  } else cuerpo = Object.keys(pedido).map((id) => renglon(id, ++i)).join("\n");
+  return renderMensaje(CFG.mensaje, { marca: CFG.marca, codigo: codigoActual(), nombre: d.nombre, negocio: d.negocio, pedido: cuerpo,
+    unidades: `${n} ${n === 1 ? "camiseta" : "camisetas"}`, precio: pu ? peso(pu) : "", total: tp ? peso(tp) : "", notas: d.notas, condiciones: CONDICIONES });
 }
 /* Las condiciones empiezan con "Condiciones: ..."; en la nota va solo el texto, con mayúscula. */
 const sinTitulo = (t) => { const s = t.replace(/^Condiciones:\s*/i, ""); return s.charAt(0).toUpperCase() + s.slice(1); };
@@ -489,38 +527,55 @@ function pintarPedido() {
     $("pCuerpo").innerHTML = `<p class="nota">Todavía no sumaste camisetas. Elegí un modelo del catálogo y cargá los talles.</p>`;
     $("pPie").innerHTML = `<button class="secundario" type="button" data-cerrar>Seguir mirando</button>`; return;
   }
-  const lineas = ids.map((id) => { const p = porId.get(Number(id)); const e = etiquetaDe(p); return `<div class="linea-ped"><img src="/img/${p.id}/1" alt="">
+  const tarjetaPed = (id) => { const p = porId.get(Number(id)); const e = etiquetaDe(p); return `<div class="linea-ped"><img src="/img/${p.id}/1" alt="">
     <div><h4>${esc(p.nombre)}</h4><div class="det">${e ? esc(e) + " · " : ""}${unidadesDe(id)} u.</div><div class="det">${esc(detalleTalles(pedido[id]))}</div></div>
-    <div class="acc"><button type="button" data-editar="${id}">Editar</button><button type="button" data-quitar="${id}">Quitar</button></div></div>`; }).join("");
+    <div class="acc"><button type="button" data-editar="${id}">Editar</button><button type="button" data-quitar="${id}">Quitar</button></div></div>`; };
+  const conLineas = CFG.lineas.length > 0, gs = conLineas ? grupos() : [];
+  const lineas = conLineas
+    ? gs.map((g) => `<div class="grupo-ped">${esc(g.nombre)}<span>${g.n} u.${g.precio != null ? ` · ${peso(g.precio)} c/u` : ""}</span></div>` + g.ids.map(tarjetaPed).join("")).join("")
+    : ids.map(tarjetaPed).join("");
   const minimo = CFG.minimo;
   const proximo = CFG.tramos.slice().reverse().find((t) => n < t.desde);
   const meta = proximo ? proximo.desde : (CFG.tramos[0] ? CFG.tramos[0].desde : minimo);
   const aviso = n < minimo ? `Te faltan <b>${minimo - n}</b> para el pedido mínimo de ${minimo} camisetas.`
     : proximo ? `Sumando <b>${proximo.desde - n}</b> más pagás <b>${peso(proximo.precio)}</b> cada una.`
     : pu ? `Tenés el mejor precio: <b>${peso(pu)}</b> cada una.` : `El precio te lo confirma una persona del equipo.`;
+  /* Con líneas, un aviso por cada una: cuánto falta para su mínimo o para la escala siguiente. */
+  const avisoLinea = (g) => g.falta ? `<b>${esc(g.nombre)}</b>: te faltan <b>${g.falta}</b> para el mínimo de ${g.minimo}.`
+    : g.proximo ? `<b>${esc(g.nombre)}</b>: sumando <b>${g.proximo.desde - g.n}</b> más pagás <b>${peso(g.proximo.precio)}</b> cada una.`
+    : g.precio != null ? `<b>${esc(g.nombre)}</b>: tenés el mejor precio, <b>${peso(g.precio)}</b> cada una.` : `<b>${esc(g.nombre)}</b>: el precio te lo confirma una persona del equipo.`;
+  const medidor = conLineas
+    ? `<div class="meter">${gs.map((g) => `<p>${avisoLinea(g)}</p>`).join("")}</div>`
+    : `<div class="meter"><div class="barra" role="progressbar" aria-valuemin="0" aria-valuemax="${meta}" aria-valuenow="${Math.min(n, meta)}"><i style="width:${Math.min(100, (n / meta) * 100)}%"></i></div><p>${aviso}</p></div>`;
   const f = datosGuardados;
   $("pCuerpo").innerHTML = `${lineas}
-    <div class="meter"><div class="barra" role="progressbar" aria-valuemin="0" aria-valuemax="${meta}" aria-valuenow="${Math.min(n, meta)}"><i style="width:${Math.min(100, (n / meta) * 100)}%"></i></div><p>${aviso}</p></div>
+    ${medidor}
     <div class="campo"><label for="fNombre">Tu nombre</label><input id="fNombre" autocomplete="name" value="${esc(f.nombre)}"></div>
     <div class="campo"><label for="fNegocio">Negocio y ciudad</label><input id="fNegocio" autocomplete="organization" value="${esc(f.negocio)}"></div>
     <div class="campo"><label for="fNotas">Notas del pedido (opcional)</label><textarea id="fNotas">${esc(f.notas)}</textarea></div>`;
+  const tp = conLineas ? totalPrecio() : null;
+  const filasTotal = conLineas
+    ? gs.map((g) => `<div><span>${esc(g.nombre)} · ${g.n} u.</span><b>${g.precio != null ? `${peso(g.precio)} c/u` : "a confirmar"}</b></div>`).join("") + (tp ? `<div class="gran"><span>Total</span><span>${peso(tp)}</span></div>` : `<div><span>Total</span><b>a confirmar</b></div>`)
+    : (pu ? `<div><span>Precio por unidad</span><b>${peso(pu)}</b></div><div class="gran"><span>Total</span><span>${peso(pu * n)}</span></div>` : `<div><span>Precio por unidad</span><b>${CFG.tramos.length ? `desde ${minimo} camisetas` : "a confirmar"}</b></div>`);
+  const sinMinimo = conLineas ? gs.find((g) => g.falta) : (n < minimo ? { falta: minimo - n, nombre: "" } : null);
+  const textoBoton = CFG.pausa ? "Pedidos pausados por ahora" : sinMinimo ? `Sumá ${sinMinimo.falta} más${conLineas ? ` de ${sinMinimo.nombre}` : ""} para enviar` : "Enviar pedido por WhatsApp";
   $("pPie").innerHTML = `<div class="totales"><div><span>Camisetas</span><b>${n}</b></div>
-    ${pu ? `<div><span>Precio por unidad</span><b>${peso(pu)}</b></div><div class="gran"><span>Total</span><span>${peso(pu * n)}</span></div>` : `<div><span>Precio por unidad</span><b>${CFG.tramos.length ? `desde ${minimo} camisetas` : "a confirmar"}</b></div>`}</div>
-    <a class="primario" id="enviarWA" href="#" target="_blank" rel="noopener" aria-disabled="${CFG.pausa || n < minimo}">${CFG.pausa ? "Pedidos pausados por ahora" : n < minimo ? `Sumá ${minimo - n} más para enviar` : "Enviar pedido por WhatsApp"}</a>
+    ${filasTotal}</div>
+    <a class="primario" id="enviarWA" href="#" target="_blank" rel="noopener" aria-disabled="${!puedeEnviar()}">${textoBoton}</a>
     <button class="secundario" id="copiar" type="button">Copiar pedido</button>
     <p class="nota" id="notaCopia">Se abre tu WhatsApp con el pedido escrito. ${esc(sinTitulo(CONDICIONES))}</p>`;
   actualizarLink();
 }
 function actualizarLink() {
   const a = $("enviarWA"); if (!a) return;
-  a.href = !CFG.pausa && total() >= CFG.minimo ? `https://wa.me/${CFG.whatsapp}?text=${encodeURIComponent(mensaje())}` : "#";
+  a.href = puedeEnviar() ? `https://wa.me/${CFG.whatsapp}?text=${encodeURIComponent(mensaje())}` : "#";
 }
 $("hojaPedido").addEventListener("input", () => { datosGuardados = datos(); actualizarLink(); guardar(); });
 $("hojaPedido").addEventListener("click", (e) => {
   const q = e.target.closest("[data-quitar]"); const ed = e.target.closest("[data-editar]");
   if (q) { delete pedido[q.dataset.quitar]; actualizar(); pintarPedido(); }
   if (ed) { cerrarTodo(); abrirTalles(Number(ed.dataset.editar)); }
-  const wa = e.target.closest("#enviarWA"); if (wa && (CFG.pausa || total() < CFG.minimo)) e.preventDefault(); else if (wa) registrarPedido();
+  const wa = e.target.closest("#enviarWA"); if (wa && !puedeEnviar()) e.preventDefault(); else if (wa) registrarPedido();
   if (e.target.closest("#copiar")) {
     const nota = $("notaCopia"); registrarPedido();
     try { navigator.clipboard.writeText(mensaje()).then(() => { nota.textContent = "Pedido copiado. Pegalo en el WhatsApp."; }, () => { nota.textContent = "No se pudo copiar. Usá el botón de WhatsApp."; }); }
@@ -581,10 +636,16 @@ function aplicarNegocio(d) {
   prueba.onload = () => { logo.src = prueba.src; logo.alt = marca; logo.hidden = false; $("marcaTexto").hidden = true; };
   prueba.src = d.logo || "logo.webp";
   $("bandaPrecios").innerHTML = tr.map((t) => `<span>${t.desde} o más: ${peso(t.precio)} c/u</span>`).join("");
-  $("carteles").hidden = !tr.length;
-  $("carteles").innerHTML = tr.map((t, i) => { const mejor = tr.length > 1 && i === tr.length - 1;
+  /* Con líneas (G5, Top Quality, Shorts) hay un cartel por línea con sus escalas; las escalas viajan de mayor a menor. */
+  const lineasConPrecio = (d.lineas || []).filter((l) => (l.tramos || []).length);
+  const cartelesLinea = lineasConPrecio.map((l) => `<div class="linea-precios"><h3>${esc(l.nombre)}</h3><div class="escalas">${l.tramos.slice().reverse().map((t) => `<span>${t.desde} o más<b>${peso(t.precio)}<small>c/u</small></b></span>`).join("")}</div></div>`).join("");
+  $("carteles").hidden = !(tr.length || cartelesLinea);
+  $("carteles").innerHTML = cartelesLinea + tr.map((t, i) => { const mejor = tr.length > 1 && i === tr.length - 1;
     return `<div class="cartel${mejor ? " mejor" : ""}">${mejor ? '<span class="mejor-tag">Mejor precio</span>' : ""}<div class="desde"><b>${t.desde}</b> o más</div><div class="monto">${peso(t.precio)}<small>c/u</small></div></div>`; }).join("");
-  $("minimoNum").textContent = d.minimo || ""; $("minimoCartel").hidden = !d.minimo;
+  /* El mínimo: uno solo para todo el pedido o, con líneas, el de cada línea (si es el mismo, un cartel; si no, ninguno). */
+  const minimos = [...new Set((d.lineas || []).map((l) => l.minimo))];
+  const minimoCartel = (d.lineas || []).length ? (minimos.length === 1 ? minimos[0] : 0) : d.minimo;
+  $("minimoNum").textContent = minimoCartel || ""; $("minimoSufijo").textContent = (d.lineas || []).length ? "por línea" : "camisetas"; $("minimoCartel").hidden = !minimoCartel;
   const reglas = d.reglas || [];
   $("reglas").hidden = !reglas.length;
   $("reglasWrap").innerHTML = reglas.map((r) => `<div><span class="etiqueta">${esc(r.etiqueta)}</span><h3>${esc(r.titulo)}</h3><p>${esc(r.texto)}</p></div>`).join("");
@@ -604,7 +665,7 @@ async function cargar() {
     const r = await fetch("/api/catalogo", { cache: "no-store" });
     if (!r.ok) throw new Error(r.status);
     const d = await r.json();
-    CFG = { tramos: d.tramos, minimo: d.minimo, limitarStock: d.limitarStock, mostrarUnidades: d.mostrarUnidades !== false, whatsapp: d.whatsapp, marca: d.marca || "", filtroVersion: d.filtroVersion !== false, mensaje: d.mensaje || "{pedido}", pausa: !!d.pausa };
+    CFG = { tramos: d.tramos, lineas: d.lineas || [], minimo: d.minimo, limitarStock: d.limitarStock, mostrarUnidades: d.mostrarUnidades !== false, whatsapp: d.whatsapp, marca: d.marca || "", filtroVersion: d.filtroVersion !== false, mensaje: d.mensaje || "{pedido}", pausa: !!d.pausa };
     aplicarNegocio(d);
     PRODUCTOS = d.productos; porId = new Map(PRODUCTOS.map((p) => [p.id, p]));
     $("waDirecto").href = `https://wa.me/${CFG.whatsapp}`;

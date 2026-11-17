@@ -881,6 +881,54 @@ def test_ajustes_mal_armados_no_se_guardan(sesion, cambios):
     assert sesion.get("/admin/api/web").json()["ajustes"] == sesion.get("/admin/api/web").json()["porDefecto"]
 
 
+LINEAS_WEB = [
+    {"id": "top", "nombre": " Top   Quality ", "cats": ["arg"], "minimo": 6, "tramos": [{"desde": 12, "precio": 30000}, {"desde": 6, "precio": 35000}]},
+    {"id": "g5", "nombre": "G5", "cats": [], "minimo": 6, "tramos": [{"desde": 6, "precio": 33500}]},
+]
+
+
+def test_el_panel_ofrece_las_categorias_para_armar_las_lineas(sesion):
+    assert sesion.get("/admin/api/web").json()["categorias"] == [{"id": "arg", "nombre": "Fútbol argentino"}]
+
+
+def test_las_lineas_de_precios_se_guardan_ordenadas_y_limpias(sesion, memoria):
+    r = sesion.put("/admin/api/web", json=web(lineas=LINEAS_WEB), headers=H)
+
+    assert r.status_code == 200 and r.json()["cambios"] == ["precios por línea"]
+    top = sesion.get("/admin/api/web").json()["ajustes"]["lineas"][0]
+    assert top["nombre"] == "Top Quality"
+    assert [t["desde"] for t in top["tramos"]] == [6, 12], "las escalas quedan de menor a mayor"
+    assert memoria.filas[-1]["accion"] == "config" and "precios por línea" in memoria.filas[-1]["talle"]
+
+
+def test_guardar_otros_ajustes_no_pierde_las_lineas(sesion):
+    sesion.put("/admin/api/web", json=web(lineas=LINEAS_WEB), headers=H)
+    ver = sesion.get("/admin/api/web").json()["ajustes"]
+
+    r = sesion.put("/admin/api/web", json=web(**{**ver, "marca": "Otra"}), headers=H)
+
+    assert r.status_code == 200
+    assert [l["id"] for l in sesion.get("/admin/api/web").json()["ajustes"]["lineas"]] == ["top", "g5"]
+
+
+@pytest.mark.parametrize(
+    "lineas",
+    [
+        [{**LINEAS_WEB[0]}, {**LINEAS_WEB[1], "id": "top"}],  # mismo identificador
+        [{**LINEAS_WEB[0]}, {**LINEAS_WEB[1], "cats": ["arg"]}],  # una categoría en dos líneas
+        [{**LINEAS_WEB[0], "tramos": [{"desde": 6, "precio": 1}, {"desde": 6, "precio": 2}]}],  # dos escalas desde lo mismo
+        [{**LINEAS_WEB[0], "minimo": 0}],
+        [{**LINEAS_WEB[0], "nombre": ""}],
+        [{**LINEAS_WEB[0], "id": "Con Espacios"}],
+    ],
+)
+def test_lineas_mal_armadas_no_se_guardan(sesion, lineas):
+    r = sesion.put("/admin/api/web", json=web(lineas=lineas), headers=H)
+
+    assert r.status_code == 422
+    assert sesion.get("/admin/api/web").json()["ajustes"]["lineas"] == []
+
+
 def test_el_mensaje_puede_usar_todos_los_datos_conocidos(sesion):
     todos = " ".join("{" + d + "}" for d in ajustes.DATOS_DEL_MENSAJE)
 

@@ -324,6 +324,8 @@ tr.sin-stock .nombre { color: var(--suave); }
         </div>
         <div class="campo"><label>Precio por cantidad</label><div id="wTramos" style="display:grid;gap:8px"></div><div><button class="btn chico" id="wTramoMas" type="button">+ Agregar escala</button></div>
           <span class="ayuda">El precio por camiseta según cuántas lleva el pedido. Sin escalas, la web dice que el precio lo confirma el equipo.</span></div>
+        <div class="campo"><label>Precios por línea de producto</label><div id="wLineas" style="display:grid;gap:12px"></div><div><button class="btn chico" id="wLineaMas" type="button">+ Agregar línea</button></div>
+          <span class="ayuda">Cada línea (por ejemplo G5, Top Quality, Shorts) tiene su propio mínimo y su propia escala. Las unidades se cuentan dentro de cada línea: no se mezclan calidades, sí modelos. Lo que no entra en ninguna línea usa el mínimo y las escalas de arriba. Sin líneas rige la escala única.</span></div>
         <label class="opcion"><input type="checkbox" id="wOcultarPrecios" data-w="ocultarPrecios"><span><b>Ocultar los precios</b><small>La web no muestra las escalas ni el total: pide que el equipo los confirme.</small></span></label>
         <label class="opcion"><input type="checkbox" id="wPausa" data-w="pausa"><span><b>Pausar los pedidos</b><small>El catálogo se sigue viendo, pero no se puede enviar el pedido.</small></span></label>
         <div class="campo"><label for="wAviso">Aviso arriba de la web</label><input id="wAviso" data-w="aviso" maxlength="160" placeholder="Ej: Cerrado por balance hasta el lunes 24"><span class="ayuda">Si lo dejás vacío, no se muestra.</span></div>
@@ -964,7 +966,7 @@ $("btnGuardarFiltros").addEventListener("click", async () => {
 });
 
 /* ---------- web mayorista ---------- */
-let W = null, WBASE = "", webPorDefecto = null;
+let W = null, WBASE = "", webPorDefecto = null, webCategorias = [];
 function renderMensaje(plantilla, v) {
   const lineas = plantilla.split("\n").filter((l) => { const ph = l.match(/\{[a-z]+\}/g); return !ph || ph.some((p) => String(v[p.slice(1, -1)] == null ? "" : v[p.slice(1, -1)]).trim() !== ""); });
   return lineas.map((l) => l.replace(/\{([a-z]+)\}/g, (_, k) => (v[k] == null ? "" : v[k]))).join("\n").replace(/\n{3,}/g, "\n\n").trim();
@@ -978,14 +980,14 @@ const dinero2 = (n) => "$" + Number(n).toLocaleString("es-AR");
 
 async function cargarWeb() {
   $("msgWeb").textContent = "";
-  try { const d = await api("/web"); W = d.ajustes; webPorDefecto = d.porDefecto; WBASE = firmaWeb(); pintarFormWeb(); }
+  try { const d = await api("/web"); W = d.ajustes; W.lineas = W.lineas || []; webPorDefecto = d.porDefecto; webCategorias = d.categorias || []; WBASE = firmaWeb(); pintarFormWeb(); }
   catch (e) { $("msgWeb").className = "mensaje"; $("msgWeb").textContent = "No se pudo cargar: " + e.message; }
 }
 function pintarFormWeb() {
   document.querySelectorAll("#pestanaWeb [data-w]").forEach((el) => { const v = W[el.dataset.w]; if (el.type === "checkbox") el.checked = !!v; else el.value = v == null ? "" : v; });
   $("wColores").innerHTML = COLORES.map(([c, n]) => `<button type="button" style="background:${c}" data-color="${c}" aria-label="${n}" title="${n}" aria-pressed="${W.color.toLowerCase() === c}"></button>`).join("") + `<input type="color" id="wColorLibre" value="${esc(W.color)}" aria-label="Otro color">`;
   $("wDatos").innerHTML = DATOS_MENSAJE.map((d) => `<button type="button" data-dato="${d}">{${d}}</button>`).join("");
-  pintarTramosWeb(); pintarReglasWeb(); pintarLogoWeb(); refrescarWeb();
+  pintarTramosWeb(); pintarLineasWeb(); pintarReglasWeb(); pintarLogoWeb(); refrescarWeb();
 }
 function pintarLogoWeb() { $("wLogoVista").src = "/logo.webp" + (W.logoHash ? "?v=" + W.logoHash : ""); }
 function refrescarWeb() {
@@ -993,8 +995,13 @@ function refrescarWeb() {
   $("wWhatsappAyuda").className = "ayuda"; $("wWhatsappAyuda").style.color = ok ? "var(--ok)" : "var(--error)";
   $("wWhatsappAyuda").textContent = ok ? `Los pedidos llegan al chat de wa.me/${wsp}.` : "Con código de país, sin +, espacios ni guiones. Para Argentina empieza con 549 (por ejemplo 5493562514675).";
   const trs = tramosOrdenados(), t9 = trs.filter((t) => t.desde <= 9).pop();
-  $("wMensajeVista").textContent = renderMensaje(W.mensaje || "", { marca: W.marca, codigo: "A-7K3QX", nombre: "Pablo", negocio: "Kiosco Pablo, Rosario", pedido: "1) Barcelona 26/27\n   M x2, L x3\n2) River ORIGINAL\n   S x4",
-    unidades: "9 camisetas", precio: !W.ocultarPrecios && t9 ? dinero2(t9.precio) : "", total: !W.ocultarPrecios && t9 ? dinero2(9 * t9.precio) : "", notas: "", condiciones: W.condiciones });
+  /* Con líneas, el ejemplo es de la primera: 9 camisetas con su cabecera (cantidad × precio), como lo arma la web. */
+  const l0 = lineasOrdenadas()[0], l9 = l0 && l0.tramos.filter((t) => t.desde <= 9).pop(), conLineas = !!l0;
+  const pedidoEj = "1) Barcelona 26/27\n   M x2, L x3\n2) River ORIGINAL\n   S x4";
+  $("wMensajeVista").textContent = renderMensaje(W.mensaje || "", { marca: W.marca, codigo: "A-7K3QX", nombre: "Pablo", negocio: "Kiosco Pablo, Rosario",
+    pedido: conLineas ? `*${l0.nombre || "Línea"} · 9 u.${!W.ocultarPrecios && l9 ? ` × ${dinero2(l9.precio)} = ${dinero2(9 * l9.precio)}` : ""}*\n${pedidoEj}` : pedidoEj,
+    unidades: "9 camisetas", precio: !W.ocultarPrecios && !conLineas && t9 ? dinero2(t9.precio) : "",
+    total: W.ocultarPrecios ? "" : conLineas ? (l9 ? dinero2(9 * l9.precio) : "") : (t9 ? dinero2(9 * t9.precio) : ""), notas: "", condiciones: W.condiciones });
   pintarMiniWeb();
   $("barraWeb").hidden = !webSucia();
 }
@@ -1007,8 +1014,9 @@ function pintarMiniWeb() {
   m.innerHTML = `<div class="banda">${esc(W.bandaIzq)} · ${esc(W.bandaDer)}</div>${W.aviso ? `<div class="aviso">${esc(W.aviso)}</div>` : ""}
     <div class="cab"><img src="/logo.webp${W.logoHash ? "?v=" + W.logoHash : ""}" alt=""><b>${esc(W.marca)}</b><span class="rot">Mayorista</span></div>
     <div class="hero"><h4>${titulo}</h4><p>${esc(W.bajada)}</p>
+      ${W.ocultarPrecios ? "" : lineasOrdenadas().filter((l) => l.tramos.length).map((l) => `<div class="cartel"><span class="de">${esc(l.nombre || "Línea")}</span><span class="mo" style="font-size:15px">${l.tramos.map((t) => `${t.desde}+: ${dinero2(t.precio)}`).join(" · ")}</span></div>`).join("")}
       ${trs.map((t) => `<div class="cartel"><span class="de"><b>${t.desde}</b>o más</span><span class="mo">${dinero2(t.precio)}</span></div>`).join("")}
-      <div class="minimo"><span>Pedido mínimo</span><b>${W.minimo} camisetas</b></div></div>
+      <div class="minimo"><span>Pedido mínimo</span><b>${W.lineas.length ? "por línea" : `${W.minimo} camisetas`}</b></div></div>
     <div class="pedido"><div class="bt ${W.pausa ? "pausa" : ""}">${W.pausa ? "Pedidos pausados por ahora" : "Enviar pedido por WhatsApp"}</div>${W.horario ? `<small>Atención: ${esc(W.horario)}</small>` : ""}</div>`;
 }
 document.querySelector("#pestanaWeb").addEventListener("input", (e) => {
@@ -1031,6 +1039,44 @@ function pintarTramosWeb() {
 $("wTramos").addEventListener("input", (e) => { const d = e.target.dataset, v = parseInt(e.target.value, 10) || 0; if (d.td !== undefined) W.tramos[d.td].desde = v; if (d.tp !== undefined) W.tramos[d.tp].precio = v; refrescarWeb(); });
 $("wTramos").addEventListener("click", (e) => { const q = e.target.closest("[data-tq]"); if (q) { W.tramos.splice(Number(q.dataset.tq), 1); pintarTramosWeb(); refrescarWeb(); } });
 $("wTramoMas").addEventListener("click", () => { const ult = tramosOrdenados().pop(); W.tramos.push({ desde: ult ? ult.desde * 2 : 6, precio: ult ? ult.precio : 0 }); pintarTramosWeb(); refrescarWeb(); });
+/* precios por línea: cada línea con su mínimo, sus categorías y su escala */
+const lineasOrdenadas = () => (W.lineas || []).map((l) => ({ ...l, tramos: l.tramos.filter((t) => t.desde > 0 && t.precio > 0).slice().sort((a, b) => a.desde - b.desde) }));
+function pintarLineasWeb() {
+  $("wLineas").innerHTML = W.lineas.map((l, i) => `<div class="fila-edit">
+    <div class="dos"><div class="campo"><label for="lN${i}">Nombre de la línea</label><input id="lN${i}" data-ln="${i}" maxlength="60" value="${esc(l.nombre)}"></div>
+      <div class="campo"><label for="lM${i}">Mínimo (camisetas)</label><input id="lM${i}" type="number" min="1" inputmode="numeric" data-lm="${i}" value="${l.minimo}"></div></div>
+    <div class="campo"><label>Categorías que la forman</label><div class="categorias">${webCategorias.map((c) => `<label><input type="checkbox" data-lc="${i}" value="${esc(c.id)}" ${l.cats.includes(c.id) ? "checked" : ""}> ${esc(c.nombre)}</label>`).join("") || '<span class="ayuda">Todavía no hay filtros: armalos en «Modelos de la tienda».</span>'}</div></div>
+    ${l.tramos.map((t, j) => `<div class="dos"><div class="campo"><label for="lD${i}_${j}">Desde (camisetas)</label><input id="lD${i}_${j}" type="number" min="1" inputmode="numeric" data-lde="${i}:${j}" value="${t.desde}"></div>
+      <div class="campo"><label for="lP${i}_${j}">Precio por camiseta ($)</label><input id="lP${i}_${j}" type="number" min="1" inputmode="numeric" data-lpr="${i}:${j}" value="${t.precio}"></div>
+      <div><button class="btn chico" data-lqt="${i}:${j}" type="button">Quitar escala</button></div></div>`).join("")}
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn chico" data-lt="${i}" type="button">+ Agregar escala</button><button class="btn chico" data-lq="${i}" type="button">Quitar línea</button></div></div>`).join("") || '<p class="ayuda">Sin líneas: rige el mínimo y la escala única de arriba.</p>';
+}
+$("wLineas").addEventListener("input", (e) => {
+  const d = e.target.dataset, v = parseInt(e.target.value, 10) || 0;
+  if (d.ln !== undefined) W.lineas[d.ln].nombre = e.target.value;
+  else if (d.lm !== undefined) W.lineas[d.lm].minimo = v;
+  else if (d.lde !== undefined) { const [i, j] = d.lde.split(":"); W.lineas[i].tramos[j].desde = v; }
+  else if (d.lpr !== undefined) { const [i, j] = d.lpr.split(":"); W.lineas[i].tramos[j].precio = v; }
+  else return;
+  refrescarWeb();
+});
+$("wLineas").addEventListener("change", (e) => {
+  const i = e.target.dataset.lc; if (i === undefined) return;
+  const cats = new Set(W.lineas[i].cats); if (e.target.checked) cats.add(e.target.value); else cats.delete(e.target.value);
+  W.lineas[i].cats = [...cats]; refrescarWeb();
+});
+$("wLineas").addEventListener("click", (e) => {
+  const q = e.target.closest("[data-lq]"), t = e.target.closest("[data-lt]"), qt = e.target.closest("[data-lqt]");
+  if (q) W.lineas.splice(Number(q.dataset.lq), 1);
+  else if (t) { const l = W.lineas[Number(t.dataset.lt)], ult = l.tramos.slice().sort((a, b) => a.desde - b.desde).pop(); l.tramos.push({ desde: ult ? ult.desde * 2 : l.minimo, precio: ult ? ult.precio : 0 }); }
+  else if (qt) { const [i, j] = qt.dataset.lqt.split(":"); W.lineas[i].tramos.splice(Number(j), 1); }
+  else return;
+  pintarLineasWeb(); refrescarWeb();
+});
+$("wLineaMas").addEventListener("click", () => {
+  if (W.lineas.length >= 8) { aviso("Son hasta 8 líneas."); return; }
+  W.lineas.push({ id: "l" + Date.now().toString(36).slice(-7), nombre: "", cats: [], minimo: W.minimo || 6, tramos: [] }); pintarLineasWeb(); refrescarWeb();
+});
 /* reglas */
 function pintarReglasWeb() {
   $("wReglas").innerHTML = W.reglas.map((r, i) => `<div class="fila-edit"><div class="dos"><div class="campo"><label for="rE${i}">Etiqueta</label><input id="rE${i}" data-re="${i}" maxlength="30" value="${esc(r.etiqueta)}"></div>

@@ -234,7 +234,7 @@ def filas_iniciales(productos: list[dict]) -> list[tuple[int, str, int]]:
 
 ETIQUETAS_DE_AJUSTES = {
     "marca": "nombre", "bandaIzq": "banda", "bandaDer": "banda", "titulo": "título", "bajada": "texto de portada", "color": "color",
-    "whatsapp": "WhatsApp", "mensaje": "mensaje del pedido", "minimo": "pedido mínimo", "tramos": "precios", "pausa": "pausa de pedidos",
+    "whatsapp": "WhatsApp", "mensaje": "mensaje del pedido", "minimo": "pedido mínimo", "tramos": "precios", "lineas": "precios por línea", "pausa": "pausa de pedidos",
     "aviso": "aviso", "limitarStock": "límite de stock", "filtroVersion": "filtro de versión", "mostrarUnidades": "unidades que quedan",
     "ocultarPrecios": "precios ocultos", "orden": "orden", "reglas": "reglas", "condiciones": "condiciones", "cierre": "cierre", "pie": "pie",
     "horario": "horario", "instagram": "Instagram", "tiendaUrl": "enlace a la tienda", "seoTitulo": "título en Google", "seoDescripcion": "descripción en Google",
@@ -614,7 +614,8 @@ def crear_router(
     def web_ver(usuario: str = Depends(usuario_actual)) -> dict:
         """Los ajustes de la web como están ahora (lo guardado sobre lo de siempre) y lo de siempre, para poder volver."""
         guardado = almacen_.config("logo") or {}
-        return {"ajustes": _web_actual(), "porDefecto": web_defecto() if web_defecto else {}, "logo": bool(guardado.get("datos"))}
+        categorias = [{"id": c["id"], "nombre": c["nombre"]} for c in _categorias_actuales()]
+        return {"ajustes": _web_actual(), "porDefecto": web_defecto() if web_defecto else {}, "logo": bool(guardado.get("datos")), "categorias": categorias}
 
     @router.put("/web")
     def web_guardar(datos: ajustes.AjustesWeb, usuario: str = Depends(usuario_actual)) -> dict:
@@ -624,6 +625,9 @@ def crear_router(
         antes = _web_actual()
         nuevo = datos.model_dump()
         nuevo["tramos"] = sorted(nuevo["tramos"], key=lambda t: t["desde"])
+        for linea in nuevo["lineas"]:
+            linea["nombre"] = " ".join(linea["nombre"].split())
+            linea["tramos"] = sorted(linea["tramos"], key=lambda t: t["desde"])
         nuevo["reglas"] = [{k: v.strip() for k, v in r.items()} for r in nuevo["reglas"] if any(v.strip() for v in r.values())]
         for campo in ("marca", "bandaIzq", "bandaDer", "titulo", "bajada", "aviso", "condiciones", "cierre", "pie", "horario", "instagram", "tiendaUrl", "seoTitulo", "seoDescripcion"):
             nuevo[campo] = " ".join(nuevo[campo].split())

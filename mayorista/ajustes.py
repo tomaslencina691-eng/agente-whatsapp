@@ -50,6 +50,16 @@ class Tramo(BaseModel):
     precio: int = Field(ge=1, le=100_000_000)
 
 
+class Linea(BaseModel):
+    """Un grupo de categorías con su propio mínimo y su propia escala de precios (ver precios.py)."""
+
+    id: str = Field(pattern=r"^[a-z0-9_-]{1,20}$")
+    nombre: str = Field(min_length=1, max_length=60)
+    cats: list[str] = Field(default=[], max_length=12)
+    minimo: int = Field(ge=1, le=9999)
+    tramos: list[Tramo] = Field(default=[], max_length=6)
+
+
 class Regla(BaseModel):
     etiqueta: str = Field(default="", max_length=30)
     titulo: str = Field(default="", max_length=60)
@@ -69,6 +79,7 @@ class AjustesWeb(BaseModel):
     mensaje: str = Field(min_length=1, max_length=1500)
     minimo: int = Field(ge=1, le=9999)
     tramos: list[Tramo] = Field(default=[], max_length=10)
+    lineas: list[Linea] = Field(default=[], max_length=8)
     pausa: bool = False
     aviso: str = Field(default="", max_length=160)
     limitarStock: bool = True
@@ -99,6 +110,14 @@ def problemas(a: AjustesWeb) -> list[str]:
         malos.append("El mensaje usa datos que no existen: " + ", ".join("{" + d + "}" for d in desconocidos) + ".")
     if len({t.desde for t in a.tramos}) != len(a.tramos):
         malos.append("Hay dos escalas de precio que empiezan en la misma cantidad.")
+    if len({l.id for l in a.lineas}) != len(a.lineas):
+        malos.append("Hay dos líneas de precios con el mismo identificador.")
+    for l in a.lineas:
+        if len({t.desde for t in l.tramos}) != len(l.tramos):
+            malos.append(f"La línea «{l.nombre}» tiene dos escalas que empiezan en la misma cantidad.")
+    repetidas = sorted({c for i, l in enumerate(a.lineas) for c in l.cats if any(c in o.cats for o in a.lineas[:i])})
+    if repetidas:
+        malos.append("Una categoría no puede estar en dos líneas de precios: " + ", ".join(repetidas) + ".")
     for campo, valor in (("El Instagram", a.instagram), ("La tienda", a.tiendaUrl)):
         if valor and not re.match(r"^https?://\S+$", valor):
             malos.append(f"{campo} tiene que ser un enlace que empiece con http:// o https://.")
@@ -120,6 +139,16 @@ def por_defecto(negocio: dict, marca: str, whatsapp: str, tienda_url: str, limit
         "mensaje": MENSAJE_POR_DEFECTO,
         "minimo": minimo,
         "tramos": sorted(({"desde": t["desde"], "precio": t["precio"]} for t in tramos), key=lambda t: t["desde"]),
+        "lineas": [
+            {
+                "id": l["id"],
+                "nombre": l["nombre"],
+                "cats": list(l.get("cats") or []),
+                "minimo": int(l.get("minimo", minimo)),
+                "tramos": sorted(({"desde": int(t["desde"]), "precio": int(t["precio"])} for t in l.get("tramos") or []), key=lambda t: t["desde"]),
+            }
+            for l in negocio.get("lineas") or []
+        ],
         "pausa": False,
         "aviso": "",
         "limitarStock": limitar_stock,

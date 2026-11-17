@@ -3,6 +3,38 @@
   "minimo": 6,
   "filtroVersion": false,
   "tramos": [],
+  "lineas": [
+    {
+      "id": "top",
+      "nombre": "Top Quality 1:1 (Jugador / Retro)",
+      "cats": ["jugador", "retro"],
+      "minimo": 6,
+      "tramos": [
+        { "desde": 6, "precio": 35000 },
+        { "desde": 12, "precio": 30000 }
+      ]
+    },
+    {
+      "id": "g5",
+      "nombre": "G5",
+      "cats": ["g5", "fan"],
+      "minimo": 6,
+      "tramos": [
+        { "desde": 6, "precio": 33500 },
+        { "desde": 12, "precio": 26500 }
+      ]
+    },
+    {
+      "id": "shorts",
+      "nombre": "Shorts versión jugador",
+      "cats": ["shorts"],
+      "minimo": 6,
+      "tramos": [
+        { "desde": 6, "precio": 35000 },
+        { "desde": 12, "precio": 33000 }
+      ]
+    }
+  ],
   "categorias": [
     { "id": "jugador", "nombre": "Versión jugador", "tiendanube": ["VERSION JUGADOR"] },
     { "id": "g5", "nombre": "G5", "tiendanube": ["G5"] },
@@ -10,8 +42,24 @@
     { "id": "retro", "nombre": "Retro", "tiendanube": ["RETRO"] },
     { "id": "shorts", "nombre": "Shorts", "tiendanube": ["SHORTS"] }
   ],
-  "reglas": [],
-  "condiciones": "",
-  "cierre": "",
+  "reglas": [
+    {
+      "etiqueta": "Cómo comprar",
+      "titulo": "6 o 12 por línea",
+      "texto": "Comprás 6 o 12 unidades de cada línea al precio de su escala. No se mezclan calidades, pero sí modelos de la misma línea. Ejemplo: 6 G5 y 6 Top Quality."
+    },
+    {
+      "etiqueta": "Personalizadas",
+      "titulo": "Con parche y número",
+      "texto": "Jugador y retro con parche y número: 6 a $45.000 c/u, 12 a $42.000 c/u. Shorts con número: $3.000 más por unidad. Se piden por WhatsApp."
+    },
+    {
+      "etiqueta": "Envíos",
+      "titulo": "A todo el país",
+      "texto": "Por Vía Cargo o Correo Argentino. Despachamos en hasta 48 hs."
+    }
+  ],
+  "condiciones": "Condiciones: 6 o 12 unidades por línea, sin mezclar calidades (sí modelos). Envíos a todo el país por Vía Cargo o Correo Argentino. Despacho en hasta 48 hs.",
+  "cierre": "Despachamos en hasta 48 hs por Vía Cargo o Correo Argentino.",
   "pie": ""
 }

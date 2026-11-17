@@ -49,6 +49,7 @@ import ajustes
 import almacen
 import avisos
 import historial as hist
+import precios
 import tn
 
 log = logging.getLogger("mayorista")
@@ -289,6 +290,10 @@ def _catalogo_actual() -> list[dict]:
     _actualizar_si_hace_falta()
     stock = stock_por_modelo(_almacen.filas()) if _almacen is not None else None
     catalogo = armar_catalogo(_cache["productos"], stock)[0]
+    lineas = web_vigente()["lineas"]
+    for p in catalogo:
+        linea = precios.linea_de(p["cats"], lineas)
+        p["linea"] = linea["id"] if linea else None
     orden = web_vigente()["orden"]
     if orden == "stock":
         catalogo.sort(key=lambda p: -sum(t["stock"] for t in p["talles"]))
@@ -423,6 +428,8 @@ def api_catalogo(response: Response) -> dict:
         # Con los precios ocultos no se mandan: la web pide que los confirme una persona.
         "tramos": [] if w["ocultarPrecios"] else sorted(w["tramos"], key=lambda t: t["desde"], reverse=True),
         "minimo": w["minimo"],
+        # Las líneas llevan el mínimo de cada una; con los precios ocultos van sin escalas.
+        "lineas": [{**l, "tramos": [] if w["ocultarPrecios"] else sorted(l["tramos"], key=lambda t: t["desde"], reverse=True)} for l in w["lineas"]],
         "limitarStock": w["limitarStock"],
         "mostrarUnidades": w["mostrarUnidades"],
         "whatsapp": w["whatsapp"],
@@ -493,6 +500,16 @@ def _demasiados_pedidos(ip: str) -> bool:
     return False
 
 
+def _total_estimado(items: list[dict], unidades: int) -> int | None:
+    """El total del pedido: por línea si el negocio las tiene; si no, con la escala general."""
+    lineas = web_vigente()["lineas"]
+    if not lineas:
+        precio = precio_unidad(unidades)
+        return precio * unidades if precio else None
+    cats = {p["id"]: categorias_de(p) for p in _cache["productos"] or []}
+    return precios.total_del_pedido([(cats.get(i["producto"], []), i["cantidad"]) for i in items], lineas, precio_unidad)
+
+
 @app.post("/api/pedido")
 def api_pedido(datos: PedidoNuevo, request: Request) -> dict:
     """Guarda el pedido. La web lo manda justo antes de abrir WhatsApp; si falla, el pedido sale igual."""
@@ -509,15 +526,15 @@ def api_pedido(datos: PedidoNuevo, request: Request) -> dict:
         for i in datos.items
     ]
     unidades = sum(i["cantidad"] for i in items)
-    precio = precio_unidad(unidades)
+    total = _total_estimado(items, unidades)
     guardado = _almacen.crear_pedido(
         datos.codigo,
         {"items": items, "nombre": datos.nombre.strip(), "negocio": datos.negocio.strip(), "notas": datos.notas.strip()},
         unidades,
-        precio * unidades if precio else None,
+        total,
     )
     if guardado:
-        _avisador.pedido_nuevo(datos.codigo, unidades, precio * unidades if precio else None, datos.nombre.strip(), datos.negocio.strip())
+        _avisador.pedido_nuevo(datos.codigo, unidades, total, datos.nombre.strip(), datos.negocio.strip())
     # Mandar dos veces el mismo código (un doble toque) no duplica nada.
     return {"ok": True, "codigo": datos.codigo, "nuevo": guardado}
 

@@ -40,6 +40,44 @@ def test_lo_guardado_pisa_lo_de_siempre_y_lo_demas_queda():
     assert ajustes.combinar(base, {"viejo": 1}) == base
 
 
+LINEA_G5 = {"id": "g5", "nombre": "G5", "cats": ["g5"], "minimo": 6, "tramos": [{"desde": 12, "precio": 26500}, {"desde": 6, "precio": 33500}]}
+LINEA_TOP = {"id": "top", "nombre": "Top Quality", "cats": ["jugador"], "minimo": 6, "tramos": [{"desde": 6, "precio": 35000}]}
+
+
+def test_las_lineas_de_precios_salen_de_negocio_json_con_las_escalas_de_menor_a_mayor():
+    d = ajustes.por_defecto({"lineas": [LINEA_G5]}, "SF", "549", "", True, 6, [])
+
+    assert d["lineas"] == [{"id": "g5", "nombre": "G5", "cats": ["g5"], "minimo": 6, "tramos": [{"desde": 6, "precio": 33500}, {"desde": 12, "precio": 26500}]}]
+
+
+def test_sin_lineas_en_negocio_json_no_hay_lineas():
+    assert ajustes.por_defecto({}, "SF", "549", "", True, 6, [])["lineas"] == []
+
+
+def test_una_linea_sin_minimo_propio_toma_el_general():
+    sin_minimo = {k: v for k, v in LINEA_G5.items() if k != "minimo"}
+
+    assert ajustes.por_defecto({"lineas": [sin_minimo]}, "SF", "549", "", True, 9, [])["lineas"][0]["minimo"] == 9
+
+
+def test_lineas_validas_no_tienen_problemas():
+    assert ajustes.problemas(base_de_ejemplo(lineas=[LINEA_G5, LINEA_TOP])) == []
+
+
+def test_dos_lineas_con_el_mismo_identificador_son_un_problema():
+    assert any("mismo identificador" in p for p in ajustes.problemas(base_de_ejemplo(lineas=[LINEA_G5, {**LINEA_TOP, "id": "g5"}])))
+
+
+def test_una_linea_con_dos_escalas_desde_la_misma_cantidad_es_un_problema():
+    repetida = {**LINEA_G5, "tramos": [{"desde": 6, "precio": 1}, {"desde": 6, "precio": 2}]}
+
+    assert any("G5" in p and "misma cantidad" in p for p in ajustes.problemas(base_de_ejemplo(lineas=[repetida])))
+
+
+def test_una_categoria_en_dos_lineas_es_un_problema():
+    assert any("g5" in p for p in ajustes.problemas(base_de_ejemplo(lineas=[LINEA_G5, {**LINEA_TOP, "cats": ["jugador", "g5"]}])))
+
+
 def test_ajustes_validos_no_tienen_problemas():
     assert ajustes.problemas(base_de_ejemplo()) == []
 
