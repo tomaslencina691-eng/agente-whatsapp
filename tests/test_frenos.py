@@ -207,3 +207,57 @@ def test_las_bloqueadas_viejas_tambien_se_olvidan(monkeypatch):
     tope.anotar("otra")
 
     assert "12" not in tope._bloqueadas_en
+
+
+# -- El tope de respuestas ------------------------------------------------------
+
+
+def test_la_respuesta_numero_tope_es_la_ultima():
+    from agente.frenos import CuentaDeRespuestas
+
+    cuenta = CuentaDeRespuestas(5, reloj=lambda: 0.0)
+    for _ in range(4):
+        assert not cuenta.es_la_ultima("a")
+        cuenta.anotar("a")
+    assert cuenta.es_la_ultima("a")
+    assert not cuenta.es_la_ultima("b"), "cada conversación cuenta aparte"
+
+
+def test_sin_tope_nunca_es_la_ultima():
+    from agente.frenos import CuentaDeRespuestas
+
+    cuenta = CuentaDeRespuestas(0)
+    for _ in range(50):
+        cuenta.anotar("a")
+    assert not cuenta.es_la_ultima("a")
+
+
+def test_las_respuestas_de_ayer_no_cuentan():
+    from agente.frenos import UN_DIA, CuentaDeRespuestas
+
+    ahora = [0.0]
+    cuenta = CuentaDeRespuestas(2, reloj=lambda: ahora[0])
+    cuenta.anotar("a")
+    assert cuenta.es_la_ultima("a")
+    ahora[0] = UN_DIA + 1
+    assert not cuenta.es_la_ultima("a")
+
+
+def test_olvidar_vuelve_a_cero():
+    from agente.frenos import CuentaDeRespuestas
+
+    cuenta = CuentaDeRespuestas(2, reloj=lambda: 0.0)
+    cuenta.anotar("a")
+    cuenta.olvidar("a")
+    assert cuenta.cuantas("a") == 0
+
+
+def test_la_marca_de_pase_se_saca_del_texto():
+    from agente.frenos import separar_pase
+
+    assert separar_pase("Te paso el número: +54 9 3562 67-4486\n[pasar_a_persona]") == (
+        "Te paso el número: +54 9 3562 67-4486",
+        True,
+    )
+    assert separar_pase("Hola [Pasar a persona]") == ("Hola", True)
+    assert separar_pase("Hola, ¿qué buscás?") == ("Hola, ¿qué buscás?", False)

@@ -455,7 +455,7 @@ tr.sin-stock .nombre { color: var(--suave); }
         <p class="ayuda" id="agCambios">Sin cambios</p>
         <p class="ayuda" id="agVarsAviso" style="color:var(--mostaza-claro)"></p>
         <div class="campo"><label for="agNota">Qué cambiaste (opcional)</label><input id="agNota" maxlength="120" placeholder="Ej: ahora pasa el alias para transferir"></div>
-        <div class="acciones" style="justify-content:flex-start"><button class="btn" id="agDescartar" type="button">Descartar</button><button class="btn fuerte" id="agPublicar" type="button">Publicar al agente</button></div>
+        <div class="acciones" style="justify-content:flex-start"><button class="btn" id="agDescartar" type="button">Descartar</button><button class="btn" id="agRepo" type="button" hidden>Traer la versión del repositorio</button><button class="btn fuerte" id="agPublicar" type="button">Publicar al agente</button></div>
         <div class="mensaje" id="agMsg" role="status"></div>
       </div>
 
@@ -1285,6 +1285,9 @@ async function cargarAgente() {
   const p = AG.prompt;
   $("agInfo").textContent = !p ? "No se pudo traer el prompt actual: el agente no contesta." : AG.sinPublicar ? "Todavía no publicaste ninguna versión: este es el prompt del repositorio, el que usa el agente ahora."
     : `Versión ${p.id} en uso · ${new Date(p.fecha).toLocaleString("es-AR", { dateStyle: "medium", timeStyle: "short" })} · ${p.usuario}${p.nota ? " · " + p.nota : ""}`;
+  const repoDistinto = !!(p && !AG.sinPublicar && AG.promptRepo && AG.promptRepo.trim() !== p.texto.trim());
+  $("agRepo").hidden = !repoDistinto;
+  if (repoDistinto) $("agInfo").textContent += " · Hay una versión más nueva en el repositorio: «Traer la versión del repositorio» la carga en el editor para revisarla y publicarla.";
   document.querySelectorAll("[data-d]").forEach((el) => (el.value = AG.datos[el.dataset.d] || ""));
   $("agVars").innerHTML = AG.variables.map((v) => `<button type="button" data-var="${v}">{{${v}}}</button>`).join("");
   const s = AG.ajustes;
@@ -1313,6 +1316,11 @@ document.querySelectorAll("[data-d]").forEach((el) => el.addEventListener("input
 $("agVars").addEventListener("click", (e) => {
   const b = e.target.closest("[data-var]"); if (!b) return; const a = $("agPrompt"), txt = `{{${b.dataset.var}}}`, i = a.selectionStart == null ? a.value.length : a.selectionStart;
   a.value = a.value.slice(0, i) + txt + a.value.slice(a.selectionEnd == null ? i : a.selectionEnd); a.focus(); a.setSelectionRange(i + txt.length, i + txt.length); revisarPromptAg();
+});
+$("agRepo").addEventListener("click", () => {
+  if (agSucio() && !confirm("Tenés cambios sin publicar en el editor. ¿Reemplazarlos por la versión del repositorio?")) return;
+  $("agPrompt").value = AG.promptRepo; $("agNota").value = "Versión del repositorio"; revisarPromptAg();
+  aviso("Versión del repositorio cargada en el editor. Revisala y tocá «Publicar al agente».");
 });
 $("agDescartar").addEventListener("click", () => { $("agPrompt").value = agBase; $("agNota").value = ""; revisarPromptAg(); });
 $("agPublicar").addEventListener("click", async () => {

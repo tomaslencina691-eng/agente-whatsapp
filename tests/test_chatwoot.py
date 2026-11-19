@@ -1379,3 +1379,54 @@ def test_no_baja_fotos_de_cualquier_sitio():
         canal._enviar_foto("12", "https://sitio-malo.example.com/foto.png")
     with pytest.raises(ValueError):
         canal._enviar_foto("12", "https://mitiendanube.com.sitio-malo.example.com/foto.png")
+
+
+# -- El tope de respuestas y el pase a una persona ------------------------------
+
+
+CIERRE = "Si necesitás más ayuda, escribile a nuestro asesor: +54 9 3562 67-4486"
+
+
+def test_la_ultima_respuesta_sale_con_el_cierre_y_pasa_a_una_persona():
+    from test_agente import agente_falso
+
+    canal = ChatwootFalso()
+    agente = agente_falso(["uno", "dos", "tres"])
+
+    with cliente(canal, agente, tope_respuestas_por_dia=3, mensaje_de_cierre=CIERRE, mensajes_por_respuesta=1) as web:
+        for i in (1, 2, 3):
+            web.post(f"/chatwoot/{TOKEN}", json=evento(f"mensaje {i}", id_mensaje=i))
+        assert esperar(lambda: canal.etiquetas_mandadas())
+
+    assert canal.envios() == ["uno", "dos", "tres\n\n" + CIERRE]
+    assert canal.etiquetas_mandadas() == [["humano"]]
+    # El modelo sabía que era la última, para no cerrar con una pregunta.
+    ultimo_de_la_persona = [m.content for m in agente.historial("12") if m.type == "human"][-1]
+    assert "última respuesta" in ultimo_de_la_persona
+
+
+def test_antes_del_tope_no_hay_cierre_ni_etiqueta():
+    from test_agente import agente_falso
+
+    canal = ChatwootFalso()
+
+    with cliente(canal, agente_falso(["uno", "dos"]), tope_respuestas_por_dia=5, mensaje_de_cierre=CIERRE) as web:
+        web.post(f"/chatwoot/{TOKEN}", json=evento("hola", id_mensaje=1))
+        web.post(f"/chatwoot/{TOKEN}", json=evento("chau", id_mensaje=2))
+
+    assert canal.envios() == ["uno", "dos"]
+    assert canal.etiquetas_mandadas() == []
+
+
+def test_si_pide_una_persona_le_pasa_el_numero_y_la_etiqueta():
+    from test_agente import agente_falso
+
+    canal = ChatwootFalso()
+    agente = agente_falso(["Dale, escribile a nuestro asesor: +54 9 3562 67-4486 🙌\n[pasar_a_persona]"])
+
+    with cliente(canal, agente, tope_respuestas_por_dia=5, mensaje_de_cierre=CIERRE) as web:
+        web.post(f"/chatwoot/{TOKEN}", json=evento("quiero hablar con una persona"))
+        assert esperar(lambda: canal.etiquetas_mandadas())
+
+    assert canal.envios() == ["Dale, escribile a nuestro asesor: +54 9 3562 67-4486 🙌"]
+    assert canal.etiquetas_mandadas() == [["humano"]]

@@ -56,7 +56,7 @@ from ..canales.buffer import BufferDeMensajes
 from ..canales.chatwoot import Chatwoot, tarda_en_escribir
 from ..canales.whatsapp_meta import marcar_visto_y_escribiendo, wamid_del_evento
 from ..config import Config, ErrorDeConfiguracion
-from ..frenos import BLOQUEAR, IGNORAR, TopeDeMensajes
+from ..frenos import BLOQUEAR, IGNORAR, CuentaDeRespuestas, TopeDeMensajes, separar_pase
 from ..modelos import crear_modelo
 from ..panel_db import VARIABLES, PanelEnVivo, aplicar_datos
 from ..prompts import leer_prompt
@@ -83,6 +83,15 @@ _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 
 # Los puntitos de WhatsApp duran 25 segundos: en una espera larga se renuevan.
 RENOVAR_ESCRIBIENDO = 20
+
+# Va pegado al mensaje de la persona cuando la respuesta es la última antes
+# del tope (ver frenos.py). Entre corchetes: el prompt dice que eso lo escribe
+# el sistema, no la persona.
+AVISO_DE_ULTIMA = (
+    "\n\n[Aviso del sistema: esta es tu última respuesta en esta conversación. "
+    "Respondé lo que pregunta sin terminar con una pregunta: abajo se agrega solo "
+    "el contacto del asesor.]"
+)
 
 MAIL_DE_ERROR = """El agente no pudo responder en una conversación.
 
@@ -238,6 +247,7 @@ def crear_app(
     agente = agente or Agente(config)
     avisos = avisos or Avisos.desde_config(config)
     tope = tope or TopeDeMensajes(config.tope_mensajes_por_dia)
+    respuestas = CuentaDeRespuestas(config.tope_respuestas_por_dia)
     lector = lector or armar_lector(config, canal)
     etiqueta = config.chatwoot_etiqueta_humano
 
@@ -346,17 +356,27 @@ def crear_app(
                 primera = vivo()["soloElPrimerMensaje"] and not await asyncio.to_thread(
                     agente.historial, conversacion
                 )
+                # La última respuesta antes del tope: el modelo lo sabe, para no
+                # cerrar con una pregunta que nadie le va a contestar.
+                ultima = respuestas.es_la_ultima(conversacion)
+                para_el_modelo = texto + (AVISO_DE_ULTIMA if ultima else "")
 
                 try:
                     respuesta = await asyncio.to_thread(
-                        agente.responder, texto, conversacion
+                        agente.responder, para_el_modelo, conversacion
                     )
                 except Exception as e:
                     await algo_se_rompio(conversacion, e, CAUSA_MODELO, "modelo")
                     return
 
+                # Si la persona pidió hablar con alguien, el agente marca el pase.
+                salida, pase = separar_pase(respuesta.texto)
+                if pase and not salida:
+                    salida = config.mensaje_de_cierre
+                if ultima and not pase and config.mensaje_de_cierre:
+                    salida = salida.rstrip() + "\n\n" + config.mensaje_de_cierre
                 mensajes = partir_respuesta(
-                    respuesta.texto, maximo=vivo()["mensajesPorRespuesta"]
+                    salida, maximo=vivo()["mensajesPorRespuesta"]
                 )
                 if not mensajes:
                     # Una respuesta vacía también es una falla: sin esto, la
@@ -387,6 +407,21 @@ def crear_app(
                     return
 
                 registro.info("[%s] -> %s mensaje(s)", conversacion, len(mensajes))
+
+                respuestas.anotar(conversacion)
+                if ultima or pase:
+                    # Después de mandar: si el envío fallaba, la persona quedaba
+                    # sin el número del asesor y sin nadie que la atienda.
+                    respuestas.olvidar(conversacion)
+                    try:
+                        await asyncio.to_thread(canal.pasar_a_persona, conversacion)
+                        registro.info(
+                            "[%s] %s: pasa a una persona",
+                            conversacion,
+                            "pidió hablar con alguien" if pase else f"llegó a {respuestas.tope} respuestas",
+                        )
+                    except Exception as e:
+                        registro.error("[%s] no se pudo pasar a una persona: %s", conversacion, e)
 
                 if primera:
                     # Lo eligió al instalar: el agente abre la charla y la sigue
@@ -733,6 +768,7 @@ def crear_app(
             registro.error("[%s] no se pudo borrar la memoria: %s", conversacion, e)
             return JSONResponse({"error": f"{type(e).__name__}: {e}"}, status_code=500)
         tope.olvidar(conversacion)
+        respuestas.olvidar(conversacion)
         revisadas.discard(conversacion)
         registro.info("[%s] memoria borrada: arranca de cero", conversacion)
         return JSONResponse({"estado": "ok", "conversacion": conversacion})

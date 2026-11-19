@@ -80,6 +80,11 @@ class Config:
     # que nadie que actualice se encuentre conversaciones bloqueadas de golpe:
     # la instalación lo pregunta y el .env.example trae 50.
     tope_mensajes_por_dia: int = 0
+    # Cuántas RESPUESTAS le da el agente a una conversación en 24 horas. La
+    # última sale con el mensaje de cierre (el contacto del asesor) y la
+    # conversación pasa a una persona. 0 = sin tope (ver frenos.py).
+    tope_respuestas_por_dia: int = 0
+    mensaje_de_cierre: str = "Si necesitás más ayuda, escribile a una persona del equipo por este mismo chat."
     # Lo que entra se recorta a este largo antes de llegar al modelo. Un texto
     # pegado de 50.000 caracteres se paga en ese mensaje y en todos los que
     # siguen, porque queda en la memoria de la conversación.
@@ -189,6 +194,13 @@ class Config:
                 f"positivo, no {tope_mensajes_por_dia}."
             )
 
+        tope_respuestas_por_dia = _entero("TOPE_RESPUESTAS_POR_DIA", 0)
+        if tope_respuestas_por_dia < 0:
+            raise ErrorDeConfiguracion(
+                "TOPE_RESPUESTAS_POR_DIA tiene que ser 0 (sin tope) o un número "
+                f"positivo, no {tope_respuestas_por_dia}."
+            )
+
         espera_segundos = _entero("ESPERA_SEGUNDOS", 0)
         silencio_segundos = _entero("SILENCIO_SEGUNDOS", 25)
         if not 0 <= espera_segundos <= 600 or silencio_segundos < 0:
@@ -228,6 +240,9 @@ class Config:
             buffer_segundos=_entero("BUFFER_SEGUNDOS", 8),
             mensajes_por_respuesta=mensajes_por_respuesta,
             tope_mensajes_por_dia=tope_mensajes_por_dia,
+            tope_respuestas_por_dia=tope_respuestas_por_dia,
+            mensaje_de_cierre=(os.getenv("MENSAJE_DE_CIERRE") or "").strip()
+            or Config.mensaje_de_cierre,
             largo_maximo_de_entrada=largo_maximo_de_entrada,
             respetar_resueltas=_booleano("RESPETAR_RESUELTAS", False),
             solo_el_primer_mensaje=_booleano("SOLO_EL_PRIMER_MENSAJE", False),

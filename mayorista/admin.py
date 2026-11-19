@@ -870,6 +870,8 @@ def crear_router(
             "agente": {"conectado": estado is not None, "error": error, "modelo": (estado or {}).get("modelo", ""), "proveedor": (estado or {}).get("proveedor", "")},
             "prompt": prompt,
             "sinPublicar": sin_publicar,
+            # El de prompts/sistema.md: el panel ofrece traerlo cuando cambia en el repositorio.
+            "promptRepo": (estado or {}).get("prompt_base", ""),
             "versiones": almacen_.prompt_versiones(),
             "datos": _datos_guardados(),
             "variables": list(VARIABLES_DEL_AGENTE),

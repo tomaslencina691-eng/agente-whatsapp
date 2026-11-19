@@ -17,6 +17,7 @@ contador de esa conversación se borra en el momento de bloquearla.
 
 from __future__ import annotations
 
+import re
 import time
 from collections import deque
 from typing import Callable
@@ -113,3 +114,68 @@ class TopeDeMensajes:
                     if ahora - cuando >= GRACIA_DESPUES_DE_BLOQUEAR]
         for conversacion in vencidas:
             del self._bloqueadas_en[conversacion]
+
+
+class CuentaDeRespuestas:
+    """Cuántas veces le contestó el agente a cada conversación en las últimas 24 horas.
+
+    Es el tope que pidió el negocio: a la respuesta número `tope` el agente
+    contesta, agrega el contacto del asesor (el mensaje de cierre) y la
+    conversación pasa a una persona (la etiqueta). Cuenta respuestas, no
+    mensajes que entran: el que escribe en cinco globos seguidos recibe una
+    sola respuesta y gasta una sola.
+
+        TOPE_RESPUESTAS_POR_DIA=5  →  la quinta respuesta es la última
+
+    Al pasar la conversación a una persona se borra la cuenta: si alguien del
+    equipo le saca la etiqueta, el agente vuelve a tener `tope` respuestas.
+    """
+
+    def __init__(
+        self,
+        tope: int,
+        ventana: float = UN_DIA,
+        reloj: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self.tope = max(0, int(tope))
+        self.ventana = ventana
+        self._reloj = reloj
+        self._respuestas: dict[str, deque[float]] = {}
+
+    def cuantas(self, conversacion: str) -> int:
+        cola = self._respuestas.get(conversacion)
+        if not cola:
+            return 0
+        ahora = self._reloj()
+        while cola and ahora - cola[0] > self.ventana:
+            cola.popleft()
+        return len(cola)
+
+    def es_la_ultima(self, conversacion: str) -> bool:
+        """Si la respuesta que está por salir es la última antes de pasar a una persona."""
+        return bool(self.tope) and self.cuantas(conversacion) >= self.tope - 1
+
+    def anotar(self, conversacion: str) -> None:
+        if not self.tope:
+            return
+        self.cuantas(conversacion)  # tira las viejas
+        self._respuestas.setdefault(conversacion, deque()).append(self._reloj())
+        if len(self._respuestas) > LIMPIAR_CADA:
+            for c in [c for c in self._respuestas if not self.cuantas(c)]:
+                del self._respuestas[c]
+
+    def olvidar(self, conversacion: str) -> None:
+        self._respuestas.pop(conversacion, None)
+
+
+# Cuando la persona pide hablar con alguien del equipo, el agente le pasa el
+# número y agrega esta marca a su respuesta. La marca no se manda: el webhook
+# la saca, manda el resto y pone la etiqueta del traspaso.
+MARCA_DE_PASE = re.compile(r"\[\s*pasar[_ ]a[_ ]persona\s*\]", re.IGNORECASE)
+
+
+def separar_pase(texto: str) -> tuple[str, bool]:
+    """Saca la marca de pase del texto. Devuelve (texto limpio, si estaba)."""
+    if not MARCA_DE_PASE.search(texto or ""):
+        return texto, False
+    return MARCA_DE_PASE.sub("", texto).strip(), True
