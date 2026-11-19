@@ -63,6 +63,10 @@ details.bloque .cuerpo { display: grid; gap: 14px; padding-top: 14px; }
 .opcion small { display: block; color: var(--suave); }
 .fila-edit { display: grid; gap: 8px; background: var(--noche-2); border: 1px solid var(--linea); border-radius: 12px; padding: 12px; }
 .fila-edit .dos { align-items: end; }
+/* Mi cuenta: las tres claves en una fila, alineadas arriba (en el celular, una abajo de la otra) */
+.claves { display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; margin-bottom: 4px; }
+.claves .campo { align-content: start; }
+@media (max-width: 700px) { .claves { grid-template-columns: 1fr; } }
 .colores { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .colores button { width: 32px; height: 32px; border-radius: 50%; border: 2px solid var(--linea); padding: 0; }
 .colores button[aria-pressed="true"] { outline: 2px solid var(--texto); outline-offset: 2px; }
@@ -508,9 +512,8 @@ tr.sin-stock .nombre { color: var(--suave); }
     <div class="grupo">
       <b>Mi cuenta</b>
       <p class="ayuda" id="cuYo"></p>
-      <div class="dos">
+      <div class="claves">
         <div class="campo"><label for="cuActual">Mi clave actual</label><input id="cuActual" type="password" autocomplete="current-password"></div>
-        <div></div>
         <div class="campo"><label for="cuNueva">Clave nueva</label><input id="cuNueva" type="password" autocomplete="new-password"><span class="ayuda">Al menos 10 caracteres.</span></div>
         <div class="campo"><label for="cuRepetir">Repetí la clave nueva</label><input id="cuRepetir" type="password" autocomplete="new-password"></div>
       </div>
