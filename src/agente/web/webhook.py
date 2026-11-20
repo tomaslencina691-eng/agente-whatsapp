@@ -56,6 +56,7 @@ from ..canales.buffer import BufferDeMensajes
 from ..canales.chatwoot import Chatwoot, tarda_en_escribir
 from ..canales.whatsapp_meta import marcar_visto_y_escribiendo, wamid_del_evento
 from ..config import Config, ErrorDeConfiguracion
+from .. import bienvenida
 from ..frenos import BLOQUEAR, IGNORAR, CuentaDeRespuestas, TopeDeMensajes, separar_pase
 from ..modelos import crear_modelo
 from ..panel_db import VARIABLES, PanelEnVivo, aplicar_datos
@@ -353,13 +354,16 @@ def crear_app(
                 if await ya_no_le_toca(conversacion):
                     return
 
-                primera = vivo()["soloElPrimerMensaje"] and not await asyncio.to_thread(
-                    agente.historial, conversacion
-                )
+                nueva = not await asyncio.to_thread(agente.historial, conversacion)
+                primera = vivo()["soloElPrimerMensaje"] and nueva
+                # La bienvenida no se le deja al modelo: va siempre, tal cual (ver bienvenida.py).
+                de_bienvenida = ""
+                if nueva and bienvenida.corresponde(texto):
+                    de_bienvenida = bienvenida.extraer(await asyncio.to_thread(agente.prompt_actual))
                 # La última respuesta antes del tope: el modelo lo sabe, para no
                 # cerrar con una pregunta que nadie le va a contestar.
                 ultima = respuestas.es_la_ultima(conversacion)
-                para_el_modelo = texto + (AVISO_DE_ULTIMA if ultima else "")
+                para_el_modelo = texto + (bienvenida.AVISO if de_bienvenida else "") + (AVISO_DE_ULTIMA if ultima else "")
 
                 try:
                     respuesta = await asyncio.to_thread(
@@ -373,6 +377,7 @@ def crear_app(
                 salida, pase = separar_pase(respuesta.texto)
                 if pase and not salida:
                     salida = config.mensaje_de_cierre
+                salida = bienvenida.armar(de_bienvenida, salida)
                 if ultima and not pase and config.mensaje_de_cierre:
                     salida = salida.rstrip() + "\n\n" + config.mensaje_de_cierre
                 mensajes = partir_respuesta(

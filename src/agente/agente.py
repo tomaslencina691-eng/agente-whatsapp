@@ -36,6 +36,7 @@ from .herramientas import HERRAMIENTAS
 from .memoria import crear_memoria
 from .modelos import crear_modelo
 from .panel_db import PanelEnVivo
+from . import bienvenida
 from .prompts import leer_prompt
 from .respuesta import partir_respuesta
 
@@ -167,6 +168,11 @@ class Agente:
         recientes = _recortar(estado["messages"], self.config.memoria_mensajes)
         return [self._sistema(), *recientes]
 
+    def prompt_actual(self) -> str:
+        """El prompt que rige ahora: el publicado en el panel o, si no hay, prompts/sistema.md."""
+        panel = getattr(self, "panel", None)
+        return (panel.prompt() if panel else None) or leer_prompt(self.config.prompt_sistema)
+
     def _sistema(self) -> SystemMessage:
         """El prompt del sistema, marcado para que el proveedor lo cachee.
 
@@ -183,7 +189,7 @@ class Agente:
         (más o menos 1.000 tokens). Con un prompt corto no pasa nada malo,
         simplemente no se cachea.
         """
-        texto = (self.panel.prompt() if self.panel else None) or leer_prompt(self.config.prompt_sistema)
+        texto = self.prompt_actual()
 
         if self.config.cache and self.config.proveedor == "claude":
             return SystemMessage(
@@ -279,7 +285,13 @@ class Agente:
         verdad (el stock del mayorista, los pedidos): lo que se ve acá es lo que respondería.
         """
         entrada: list = [SystemMessage(prompt)]
+        # Como en WhatsApp: la primera respuesta lleva la bienvenida arriba (ver bienvenida.py).
+        de_bienvenida = ""
+        if len(mensajes) == 1 and bienvenida.corresponde(mensajes[0][1]):
+            de_bienvenida = bienvenida.extraer(prompt)
         for rol, texto in mensajes:
+            if de_bienvenida:
+                texto += bienvenida.AVISO
             entrada.append(AIMessage(texto) if rol == "agente" else HumanMessage(texto))
 
         modelo = self.modelo.bind_tools(HERRAMIENTAS)
@@ -305,7 +317,7 @@ class Agente:
                 usadas.append(llamada["name"])
                 entrada.append(ToolMessage(content=str(resultado), tool_call_id=llamada["id"]))
 
-        texto = _texto_de(respuesta)
+        texto = bienvenida.armar(de_bienvenida, _texto_de(respuesta))
         return {
             "texto": texto,
             "mensajes": partir_respuesta(texto, maximo=maximo_mensajes),

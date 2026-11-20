@@ -477,6 +477,9 @@ def cliente(
     # Sin la pausa entre globos, salvo que la prueba la pida: son segundos de
     # espera de verdad y acá no se mira el reloj.
     ajustes.setdefault("pausa_entre_globos", False)
+    # Sin la bienvenida del prompt del repositorio, salvo que la prueba pase uno
+    # con las marcas: si no, cada primera respuesta llevaría la bienvenida arriba.
+    ajustes.setdefault("prompt_sistema", Path(__file__).parent / "no-hay-prompt.md")
 
     config = agente.config
     config.chatwoot_webhook_token = token

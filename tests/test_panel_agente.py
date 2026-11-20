@@ -252,7 +252,7 @@ def test_el_estado_trae_el_modelo_el_prompt_del_repositorio_y_los_ajustes(secret
     agente = agente_falso(["x"])
     agente.config.mensajes_por_respuesta = 2
 
-    with cliente(ChatwootFalso(), agente) as web:
+    with cliente(ChatwootFalso(), agente, prompt_sistema=agente.config.prompt_sistema) as web:
         d = web.get("/panel/estado", headers=H).json()
 
     assert d["modelo"] == "modelo-de-prueba"
