@@ -270,6 +270,14 @@ class AlmacenMemoria:
         with self._candado:
             return {f["producto_id"] for f in self._stock.values()}
 
+    def quitar_modelo(self, producto: int) -> int:
+        """Saca del mayorista todas las filas de un modelo. Devuelve cuántas sacó."""
+        with self._candado:
+            ids = [i for i, f in self._stock.items() if f["producto_id"] == producto]
+            for i in ids:
+                del self._stock[i]
+            return len(ids)
+
     def _buscar(self, producto: int, talle: str) -> dict | None:
         return next((f for f in self._stock.values() if f["producto_id"] == producto and normalizar(f["talle"]) == normalizar(talle)), None)
 
@@ -589,6 +597,11 @@ class AlmacenPG:
         with self._conectar() as c, c.cursor() as cur:
             cur.execute("SELECT DISTINCT producto_id FROM mayorista_stock")
             return {f[0] for f in cur.fetchall()}
+
+    def quitar_modelo(self, producto: int) -> int:
+        with self._conectar() as c, c.cursor() as cur:
+            cur.execute("DELETE FROM mayorista_stock WHERE producto_id = %s", (producto,))
+            return cur.rowcount
 
     def aplicar(self, cambios: list[tuple[int, int, int]], altas: list[tuple[int, str, int]]) -> list[int]:
         nuevos: list[int] = []

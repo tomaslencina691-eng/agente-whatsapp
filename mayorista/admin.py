@@ -302,6 +302,7 @@ def vista_de_producto(p: dict | None, id: int, filas: list[dict]) -> dict:
         "id": id,
         "nombre": _nombre_de(p, id),
         "publicado": bool(p and p.get("published")),
+        "enTienda": p is not None,
         "categorias": [(c.get("name") or {}).get("es", "") for c in (p or {}).get("categories") or []],
         "foto": bool(p and p.get("images")),
         "variantes": variantes,
@@ -952,6 +953,24 @@ def crear_router(
         anotar(hist.lote_nuevo(), usuario, [{"accion": "config", "producto_id": producto, "producto": nombre(producto), "talle": "publicado en la tienda online", "antes": None, "despues": None}])
         _olvidar_lo_leido()
         return {"publicado": True}
+
+    @router.post("/productos/{producto}/quitar")
+    def producto_quitar(producto: int, usuario: str = Depends(usuario_actual)) -> dict:
+        """Saca de la planilla un modelo que ya no existe en Tiendanube (lo borraron allá)."""
+        if producto not in almacen_.incluidos():
+            raise HTTPException(404, "Ese modelo no está en el mayorista.")
+        try:
+            sigue = tn.productos_por_id([producto]).get(producto)
+        except tn.ErrorDeTiendanube as e:
+            raise HTTPException(502, str(e)) from None
+        if sigue is not None:
+            raise HTTPException(409, "Ese modelo sigue en Tiendanube: solo se pueden quitar los que se borraron de la tienda.")
+        modelo = nombre(producto)
+        talles = ", ".join(f["talle"] for f in almacen_.filas([producto]))
+        almacen_.quitar_modelo(producto)
+        anotar(hist.lote_nuevo(), usuario, [{"accion": "quitado", "producto_id": producto, "producto": modelo, "talle": talles, "antes": None, "despues": None}])
+        _olvidar_lo_leido()
+        return {"quitado": True}
 
     # -- La web mayorista --
 

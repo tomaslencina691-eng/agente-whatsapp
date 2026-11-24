@@ -204,3 +204,27 @@ def test_el_alta_pide_sesion_y_el_header(cliente, sesion, tienda):
     sesion.cookies.clear()
     assert sesion.post("/admin/api/productos", json=_datos(), headers=H).status_code == 401
     assert tienda.creados == []
+
+
+# -- Sacar de la planilla un modelo que borraron de la tienda --------------------------
+
+
+def test_quitar_un_modelo_borrado_de_la_tienda(sesion, tienda, alm, memoria):
+    creado = sesion.post("/admin/api/productos", json=_datos(), headers=H).json()
+    tienda.borrar(creado["id"])  # lo borran desde Tiendanube
+
+    planilla = {p["id"]: p for p in sesion.get("/admin/api/stock").json()["productos"]}
+    assert planilla[creado["id"]]["enTienda"] is False
+
+    r = sesion.post(f"/admin/api/productos/{creado['id']}/quitar", headers=H)
+
+    assert r.status_code == 200
+    assert alm.filas([creado["id"]]) == []
+    assert memoria.filas[-1]["accion"] == "quitado"
+
+
+def test_no_se_quita_un_modelo_que_sigue_en_la_tienda(sesion, tienda, alm):
+    r = sesion.post("/admin/api/productos/1/quitar", headers=H)
+
+    assert r.status_code == 409
+    assert alm.filas([1]), "el modelo 1 sigue en la planilla"

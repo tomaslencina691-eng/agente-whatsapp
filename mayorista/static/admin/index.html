@@ -822,7 +822,7 @@ function fila(p) {
   return `<tr data-fila="${p.id}" class="${tieneCambios(p) ? "fila-cambio" : ""}${total === 0 ? " sin-stock" : ""}">
     <td class="sel"><input type="checkbox" data-sel="${p.id}" ${seleccion.has(p.id) ? "checked" : ""} aria-label="Elegir ${esc(p.nombre)}"></td>
     <td class="foto">${p.foto ? `<img src="/admin/api/foto/${p.id}" alt="" loading="lazy" width="40" height="40">` : ""}</td>
-    <td class="modelo"><div class="nombre">${esc(p.nombre)}</div><div class="etiquetas">${p.publicado ? "" : `<span class="etq oculto">Oculto</span><button class="btn chico" type="button" data-publicar="${p.id}" title="Publicarlo en la tienda online">Publicar</button>`}${p.categorias.map((c) => `<span class="etq">${esc(c)}</span>`).join("")}</div></td>
+    <td class="modelo"><div class="nombre">${esc(p.nombre)}</div><div class="etiquetas">${p.enTienda === false ? `<span class="etq oculto">Borrado de la tienda</span><button class="btn chico" type="button" data-quitar-modelo="${p.id}" title="Sacarlo de la planilla">Quitar</button>` : p.publicado ? "" : `<span class="etq oculto">Oculto</span><button class="btn chico" type="button" data-publicar="${p.id}" title="Publicarlo en la tienda online">Publicar</button>`}${p.categorias.map((c) => `<span class="etq">${esc(c)}</span>`).join("")}</div></td>
     ${columnas.map((t) => celda(p, t)).join("")}<td class="otras">${otras}</td><td class="total" data-total="${p.id}">${total}</td></tr>`;
 }
 function estadoBarra() {
@@ -1020,6 +1020,14 @@ $("npCrear").addEventListener("click", async () => {
   finally { NP.enviando = false; $("npCrear").disabled = false; $("npCrear").textContent = "Subir a Tiendanube"; }
 });
 $("cuerpo").addEventListener("click", async (e) => {
+  const q = e.target.closest("[data-quitar-modelo]"); if (!q) return;
+  const p = productos.find((x) => x.id === Number(q.dataset.quitarModelo));
+  if (!confirm(`¿Sacar «${p ? p.nombre : "este modelo"}» de la planilla? Ya no existe en Tiendanube.`)) return;
+  q.disabled = true;
+  try { await api(`/productos/${q.dataset.quitarModelo}/quitar`, { metodo: "POST" }); productos = productos.filter((x) => x.id !== Number(q.dataset.quitarModelo)); seleccion.delete(Number(q.dataset.quitarModelo)); pintar(); aviso("Listo: se sacó de la planilla."); }
+  catch (err) { alert(err.message); q.disabled = false; }
+});
+$("cuerpo").addEventListener("click", async (e) => {
   const b = e.target.closest("[data-publicar]"); if (!b) return;
   const p = productos.find((x) => x.id === Number(b.dataset.publicar));
   if (!confirm(`¿Publicar «${p ? p.nombre : "este modelo"}» en la tienda online? Desde ahí se ve también en la web mayorista.`)) return;
@@ -1087,7 +1095,9 @@ async function cargarHistorial() {
     const lotes = await api("/historial");
     caja.innerHTML = lotes.length ? lotes.map((l) => {
       const f = new Date(l.fecha).toLocaleString("es-AR", { dateStyle: "medium", timeStyle: "short" });
-      const det = l.entradas.slice().reverse().map((e) => e.accion === "creado"
+      const det = l.entradas.slice().reverse().map((e) => e.accion === "quitado"
+        ? `<div>Sacado de la planilla (lo borraron de la tienda): ${esc(e.producto)}</div>`
+        : e.accion === "creado"
         ? `<div>Producto nuevo subido a Tiendanube: ${esc(e.producto)} (${esc(e.talle)}) · ${e.despues} camisetas</div>`
         : e.accion === "incluido"
         ? `<div>Incluido en el mayorista: ${esc(e.producto)} (${esc(e.talle)}) · ${e.despues} camisetas de arranque</div>`
