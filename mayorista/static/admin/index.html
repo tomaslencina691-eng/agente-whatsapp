@@ -214,6 +214,36 @@ tr.sin-stock .nombre { color: var(--suave); }
 .cobro input { background: var(--noche); border: 1.5px solid var(--linea); border-radius: 8px; padding: 6px 10px; min-height: 36px; width: 130px; text-transform: uppercase; }
 .pago-detectado { display: grid; gap: 6px; background: color-mix(in srgb, var(--mostaza) 12%, var(--noche)); border: 1.5px solid var(--mostaza); border-radius: 10px; padding: 8px 10px; }
 
+/* subir un producto nuevo */
+.ventana.ancha { width: min(760px, calc(100% - 24px)); }
+.np-fotos { display: flex; flex-wrap: wrap; gap: 8px; }
+.np-foto { position: relative; width: 88px; height: 88px; border-radius: 10px; overflow: hidden; border: 1.5px solid var(--linea); background: var(--noche); }
+.np-foto.principal { border-color: var(--mostaza); }
+.np-foto img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.np-foto .quitar { position: absolute; top: 3px; right: 3px; width: 26px; height: 26px; border-radius: 50%; border: 0; background: rgba(0, 0, 0, .7); color: #fff; font-weight: 800; line-height: 1; }
+.np-foto .marca-principal { position: absolute; left: 0; right: 0; bottom: 0; font-size: 11px; font-weight: 700; text-align: center; padding: 2px; background: rgba(0, 0, 0, .65); color: #fff; border: 0; width: 100%; }
+.np-sumar { width: 88px; height: 88px; border-radius: 10px; border: 1.5px dashed var(--linea); display: grid; place-items: center; text-align: center; font-size: 13px; font-weight: 700; color: var(--suave); cursor: pointer; padding: 6px; }
+.np-sumar:hover { border-color: var(--mostaza); color: var(--crema); }
+.np-cats { display: flex; flex-wrap: wrap; gap: 6px; max-height: 170px; overflow: auto; padding: 2px; }
+.np-cat { display: inline-flex; align-items: center; gap: 6px; border: 1.5px solid var(--linea); border-radius: 999px; padding: 5px 12px; font-size: 13px; font-weight: 600; color: var(--crema); cursor: pointer; user-select: none; }
+#npDescripcion { font: inherit; resize: vertical; }
+.np-cats .np-cat input { accent-color: var(--mostaza); width: 16px; height: 16px; min-height: 0; margin: 0; padding: 0; }
+.np-cat:has(input:checked) { border-color: var(--mostaza); background: color-mix(in srgb, var(--mostaza) 14%, transparent); }
+.np-talles { display: grid; gap: 6px; }
+.np-talle { display: grid; grid-template-columns: minmax(0, 1fr) 96px minmax(0, 1fr) 40px; gap: 6px; align-items: center; }
+.np-talle.cabecera { font-size: 12px; font-weight: 700; color: var(--suave); }
+.np-talle input { background: var(--noche); border: 1.5px solid var(--linea); border-radius: 10px; padding: 8px 10px; min-height: 40px; width: 100%; }
+.np-talle .quitar-talle { min-height: 40px; padding: 0; }
+.cuatro { display: grid; gap: 10px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+details.np-mas summary { cursor: pointer; font-weight: 700; }
+details.np-mas .cuerpo { display: grid; gap: 12px; padding-top: 12px; }
+@media (max-width: 720px) {
+  .cuatro { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .np-talle { grid-template-columns: minmax(0, 1fr) 76px 40px; }
+  .np-talle .sku, .np-talle.cabecera .sku { display: none; }
+  .np-talle input { font-size: 16px; min-height: 44px; }
+}
+
 /* ventanas */
 .velo { position: fixed; inset: 0; background: rgba(5, 12, 8, .75); z-index: 80; display: none; }
 .velo.on { display: block; }
@@ -306,6 +336,7 @@ tr.sin-stock .nombre { color: var(--suave); }
         <option value="ocultos">Ocultos en la tienda (no se ven en la web)</option>
         <option value="cambios">Con cambios sin guardar</option>
       </select>
+      <button class="btn fuerte" id="btnNuevoProducto" type="button">Subir producto nuevo</button>
       <button class="btn" id="btnCurva" type="button" disabled>Cargar por curva</button>
       <span class="espacio"></span>
       <span class="estado" id="estadoCambios"></span>
@@ -604,6 +635,44 @@ tr.sin-stock .nombre { color: var(--suave); }
   <div class="acciones"><button class="btn" type="button" data-cerrar>Cancelar</button><button class="btn fuerte" id="btnAplicarCurva" type="button">Aplicar a la planilla</button></div>
 </section>
 
+<section class="ventana ancha" id="ventanaProducto" role="dialog" aria-modal="true" aria-labelledby="tProducto">
+  <h2 id="tProducto">Subir producto nuevo</h2>
+  <p class="ayuda">Se crea en Tiendanube con estos datos y entra solo al mayorista, con el stock de cada talle.</p>
+  <div class="campo"><label for="npNombre">Nombre</label><input id="npNombre" maxlength="200" autocomplete="off" placeholder="Boca Juniors Titular 26/27"></div>
+  <div class="campo"><label>Fotos</label>
+    <div class="np-fotos" id="npFotos"></div>
+    <input type="file" id="npArchivos" accept="image/jpeg,image/png,image/webp" multiple hidden>
+    <span class="ayuda">Hasta 8. La primera es la principal: tocá «Principal» en otra para cambiarla.</span></div>
+  <div class="campo"><label for="npDescripcion">Descripción</label><textarea id="npDescripcion" rows="4" maxlength="20000" placeholder="Tela, calce, detalles del escudo..."></textarea></div>
+  <div class="campo"><label for="npCatBuscar">Categorías</label>
+    <input type="search" id="npCatBuscar" placeholder="Buscar categoría..." autocomplete="off">
+    <div class="np-cats" id="npCats"><span class="ayuda">Cargando las categorías de la tienda...</span></div>
+    <span class="ayuda" id="npCatAyuda">Elegí la calidad (G5, Versión jugador, Retro o Shorts): define qué precio mayorista le toca.</span></div>
+  <div class="dos">
+    <div class="campo"><label for="npPrecio">Precio en la tienda online</label><input id="npPrecio" inputmode="decimal" autocomplete="off" placeholder="45000"></div>
+    <div class="campo"><label for="npPromo">Precio promocional (opcional)</label><input id="npPromo" inputmode="decimal" autocomplete="off" placeholder="Vacío = sin oferta"></div>
+  </div>
+  <div class="campo"><label>Talles y stock</label>
+    <div class="np-talles" id="npTalles"></div>
+    <div class="acciones" style="justify-content:flex-start"><button class="btn chico" id="npTalleMas" type="button">Agregar talle</button><button class="btn chico" id="npTallesBasicos" type="button">Poner S a XXL</button></div></div>
+  <details class="np-mas"><summary>Envío y más datos (opcional)</summary><div class="cuerpo">
+    <div class="cuatro">
+      <div class="campo"><label for="npPeso">Peso (kg)</label><input id="npPeso" inputmode="decimal" placeholder="0,3"></div>
+      <div class="campo"><label for="npAlto">Alto (cm)</label><input id="npAlto" inputmode="decimal" placeholder="3"></div>
+      <div class="campo"><label for="npAncho">Ancho (cm)</label><input id="npAncho" inputmode="decimal" placeholder="25"></div>
+      <div class="campo"><label for="npProf">Profundidad (cm)</label><input id="npProf" inputmode="decimal" placeholder="30"></div>
+    </div>
+    <div class="dos">
+      <div class="campo"><label for="npMarca">Marca</label><input id="npMarca" maxlength="100" autocomplete="off"></div>
+      <div class="campo"><label for="npEtiquetas">Etiquetas</label><input id="npEtiquetas" maxlength="500" autocomplete="off" placeholder="boca, titular, 26/27"><span class="ayuda">Separadas por coma. Ayudan a encontrarlo en la tienda.</span></div>
+    </div>
+    <label class="opcion"><input type="checkbox" id="npEnvioGratis"><span><b>Envío gratis en la tienda online</b></span></label>
+  </div></details>
+  <label class="opcion"><input type="checkbox" id="npPublicado"><span><b>Publicarlo ya en la tienda online</b><small>Si no lo tildás, queda oculto: no se ve en la tienda online ni en la web mayorista hasta que toques «Publicar» en la planilla.</small></span></label>
+  <div class="mensaje" id="npMsg" role="alert"></div>
+  <div class="acciones"><button class="btn" type="button" data-cerrar>Cancelar</button><button class="btn fuerte" id="npCrear" type="button">Subir a Tiendanube</button></div>
+</section>
+
 <section class="ventana" id="ventanaClave" role="dialog" aria-modal="true" aria-labelledby="tClave">
   <h2 id="tClave">Clave nueva</h2>
   <p class="ayuda" id="claveDe"></p>
@@ -753,7 +822,7 @@ function fila(p) {
   return `<tr data-fila="${p.id}" class="${tieneCambios(p) ? "fila-cambio" : ""}${total === 0 ? " sin-stock" : ""}">
     <td class="sel"><input type="checkbox" data-sel="${p.id}" ${seleccion.has(p.id) ? "checked" : ""} aria-label="Elegir ${esc(p.nombre)}"></td>
     <td class="foto">${p.foto ? `<img src="/admin/api/foto/${p.id}" alt="" loading="lazy" width="40" height="40">` : ""}</td>
-    <td class="modelo"><div class="nombre">${esc(p.nombre)}</div><div class="etiquetas">${p.publicado ? "" : '<span class="etq oculto">Oculto</span>'}${p.categorias.map((c) => `<span class="etq">${esc(c)}</span>`).join("")}</div></td>
+    <td class="modelo"><div class="nombre">${esc(p.nombre)}</div><div class="etiquetas">${p.publicado ? "" : `<span class="etq oculto">Oculto</span><button class="btn chico" type="button" data-publicar="${p.id}" title="Publicarlo en la tienda online">Publicar</button>`}${p.categorias.map((c) => `<span class="etq">${esc(c)}</span>`).join("")}</div></td>
     ${columnas.map((t) => celda(p, t)).join("")}<td class="otras">${otras}</td><td class="total" data-total="${p.id}">${total}</td></tr>`;
 }
 function estadoBarra() {
@@ -833,6 +902,132 @@ function cerrar() { $("velo").classList.remove("on"); document.querySelectorAll(
 $("velo").addEventListener("click", cerrar); document.addEventListener("keydown", (e) => { if (e.key === "Escape") cerrar(); });
 document.addEventListener("click", (e) => { if (e.target.closest("[data-cerrar]")) cerrar(); });
 
+/* ---------- subir un producto nuevo ---------- */
+const NP = { fotos: [], categorias: null, elegidas: new Set(), enviando: false };
+const TALLES_BASICOS = ["S", "M", "L", "XL", "XXL"];
+function npNumero(texto) {
+  const t = String(texto || "").trim().replace(/\$/g, "").replace(/\s/g, "");
+  if (!t) return null;
+  // «45.000» y «45.000,50» son pesos argentinos; «0.3» es un decimal.
+  const limpio = /^\d{1,3}(\.\d{3})+(,\d+)?$/.test(t) ? t.replace(/\./g, "").replace(",", ".") : t.replace(",", ".");
+  const n = Number(limpio);
+  return Number.isFinite(n) ? n : NaN;
+}
+function npFilaTalle(talle = "", stock = "") {
+  const fila = document.createElement("div"); fila.className = "np-talle";
+  fila.innerHTML = `<input class="talle" maxlength="40" placeholder="Talle" aria-label="Talle" value="${esc(talle)}"><input class="stock" inputmode="numeric" maxlength="4" placeholder="Stock" aria-label="Stock" value="${esc(String(stock))}"><input class="sku" maxlength="60" placeholder="SKU (opcional)" aria-label="SKU"><button class="btn chico quitar-talle" type="button" aria-label="Quitar talle">✕</button>`;
+  $("npTalles").appendChild(fila);
+}
+function npPonerTalles(lista) {
+  $("npTalles").innerHTML = '<div class="np-talle cabecera"><span>Talle</span><span>Stock</span><span class="sku">SKU</span><span></span></div>';
+  lista.forEach((t) => npFilaTalle(t));
+}
+function npPintarFotos() {
+  const caja = $("npFotos");
+  caja.innerHTML = NP.fotos.map((f, i) => `<div class="np-foto${i === 0 ? " principal" : ""}"><img src="${f}" alt="Foto ${i + 1}"><button class="quitar" type="button" data-np-quitar="${i}" aria-label="Quitar la foto ${i + 1}">✕</button>${i === 0 ? '<span class="marca-principal">Principal</span>' : `<button class="marca-principal" type="button" data-np-principal="${i}">Principal</button>`}</div>`).join("")
+    + (NP.fotos.length < 8 ? '<label class="np-sumar" for="npArchivos">+ Agregar fotos</label>' : "");
+}
+function npPintarCategorias() {
+  const caja = $("npCats"), q = norm($("npCatBuscar").value);
+  if (!NP.categorias) return;
+  const lista = NP.categorias.filter((c) => !q || norm(c.nombre).includes(q) || NP.elegidas.has(c.id));
+  caja.innerHTML = lista.length ? lista.map((c) => `<label class="np-cat"><input type="checkbox" data-np-cat="${c.id}" ${NP.elegidas.has(c.id) ? "checked" : ""}>${esc(c.nombre)}</label>`).join("") : '<span class="ayuda">No hay categorías con ese nombre.</span>';
+}
+async function npCargarCategorias() {
+  if (NP.categorias) return npPintarCategorias();
+  try { NP.categorias = (await api("/productos/categorias")).categorias; npPintarCategorias(); }
+  catch (e) { $("npCats").innerHTML = `<span class="ayuda">No se pudieron traer las categorías: ${esc(e.message)}</span>`; }
+}
+function npLimpiar() {
+  ["npNombre", "npDescripcion", "npPrecio", "npPromo", "npPeso", "npAlto", "npAncho", "npProf", "npMarca", "npEtiquetas", "npCatBuscar"].forEach((id) => ($(id).value = ""));
+  $("npEnvioGratis").checked = false; $("npPublicado").checked = false; $("npMsg").textContent = "";
+  NP.fotos = []; NP.elegidas.clear(); npPintarFotos(); npPintarCategorias(); npPonerTalles(TALLES_BASICOS);
+}
+function npReducirFoto(archivo) {
+  return new Promise((ok, mal) => {
+    const lector = new FileReader();
+    lector.onerror = () => mal(new Error(`No se pudo leer «${archivo.name}».`));
+    lector.onload = () => { const img = new Image(); img.onerror = () => mal(new Error(`«${archivo.name}» no es una imagen válida.`));
+      img.onload = () => { const k = Math.min(1, 1600 / Math.max(img.width, img.height)), c = document.createElement("canvas"); c.width = Math.max(1, Math.round(img.width * k)); c.height = Math.max(1, Math.round(img.height * k));
+        const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height); ok(c.toDataURL("image/jpeg", 0.86)); };
+      img.src = lector.result; };
+    lector.readAsDataURL(archivo);
+  });
+}
+$("btnNuevoProducto").addEventListener("click", () => {
+  if (!$("npTalles").children.length) npLimpiar();
+  abrir("ventanaProducto"); npCargarCategorias(); setTimeout(() => $("npNombre").focus(), 50);
+});
+$("npArchivos").addEventListener("change", async (e) => {
+  const archivos = [...e.target.files]; e.target.value = ""; $("npMsg").textContent = "";
+  for (const f of archivos) {
+    if (NP.fotos.length >= 8) { $("npMsg").textContent = "Hasta 8 fotos por producto."; break; }
+    try { NP.fotos.push(await npReducirFoto(f)); } catch (err) { $("npMsg").textContent = err.message; }
+  }
+  npPintarFotos();
+});
+$("npFotos").addEventListener("click", (e) => {
+  const q = e.target.closest("[data-np-quitar]"), pr = e.target.closest("[data-np-principal]");
+  if (q) { NP.fotos.splice(Number(q.dataset.npQuitar), 1); npPintarFotos(); }
+  if (pr) { const [f] = NP.fotos.splice(Number(pr.dataset.npPrincipal), 1); NP.fotos.unshift(f); npPintarFotos(); }
+});
+$("npCatBuscar").addEventListener("input", npPintarCategorias);
+$("npCats").addEventListener("change", (e) => { const c = e.target.closest("[data-np-cat]"); if (!c) return; const id = Number(c.dataset.npCat); c.checked ? NP.elegidas.add(id) : NP.elegidas.delete(id); });
+$("npTalles").addEventListener("click", (e) => { const b = e.target.closest(".quitar-talle"); if (b) b.closest(".np-talle").remove(); });
+$("npTalleMas").addEventListener("click", () => { npFilaTalle(); const filas = $("npTalles").querySelectorAll(".np-talle:not(.cabecera) .talle"); filas[filas.length - 1].focus(); });
+$("npTallesBasicos").addEventListener("click", () => {
+  const hay = new Set([...$("npTalles").querySelectorAll(".talle")].map((i) => norm(i.value)));
+  TALLES_BASICOS.filter((t) => !hay.has(norm(t))).forEach((t) => npFilaTalle(t));
+});
+function npArmar() {
+  const nombreP = $("npNombre").value.trim();
+  if (nombreP.length < 3) throw new Error("Poné el nombre del producto.");
+  if (!NP.fotos.length) throw new Error("Agregá al menos una foto.");
+  const precio = npNumero($("npPrecio").value), promo = npNumero($("npPromo").value);
+  if (!precio || precio <= 0 || Number.isNaN(precio)) throw new Error("Poné el precio de la tienda online (solo números, por ejemplo 45000).");
+  if (Number.isNaN(promo)) throw new Error("El precio promocional tiene que ser un número.");
+  if (promo != null && promo >= precio) throw new Error("El precio promocional tiene que ser menor que el precio.");
+  const talles = [];
+  for (const f of $("npTalles").querySelectorAll(".np-talle:not(.cabecera)")) {
+    const talle = f.querySelector(".talle").value.trim(), st = f.querySelector(".stock").value.trim(), sku = f.querySelector(".sku").value.trim();
+    if (!talle && !st && !sku) continue;
+    if (!talle) throw new Error("Hay una fila de talle sin nombre.");
+    if (st && !/^\d{1,4}$/.test(st)) throw new Error(`El stock del talle ${talle} tiene que ser un número entero.`);
+    talles.push({ talle, stock: st ? Number(st) : 0, sku });
+  }
+  if (!talles.length) throw new Error("Agregá al menos un talle.");
+  if (new Set(talles.map((t) => norm(t.talle))).size !== talles.length) throw new Error("Hay dos talles iguales.");
+  const medidas = {};
+  for (const [id, campo, nom] of [["npPeso", "peso", "El peso"], ["npAlto", "alto", "El alto"], ["npAncho", "ancho", "El ancho"], ["npProf", "profundidad", "La profundidad"]]) {
+    const n = npNumero($(id).value); if (Number.isNaN(n) || (n != null && n < 0)) throw new Error(`${nom} tiene que ser un número.`); medidas[campo] = n;
+  }
+  return { nombre: nombreP, descripcion: $("npDescripcion").value, categorias: [...NP.elegidas], precio, precioPromocional: promo, ...medidas,
+    marca: $("npMarca").value.trim(), etiquetas: $("npEtiquetas").value.trim(), publicado: $("npPublicado").checked, envioGratis: $("npEnvioGratis").checked,
+    talles, fotos: NP.fotos.map((datos) => ({ datos })) };
+}
+$("npCrear").addEventListener("click", async () => {
+  if (NP.enviando) return;
+  const msg = $("npMsg"); msg.className = "mensaje"; msg.textContent = "";
+  let cuerpo; try { cuerpo = npArmar(); } catch (e) { msg.textContent = e.message; return; }
+  if (!cuerpo.categorias.length && !confirm("No elegiste ninguna categoría: el producto no va a tener precio mayorista hasta que le pongas una en Tiendanube. ¿Subirlo igual?")) return;
+  NP.enviando = true; $("npCrear").disabled = true; $("npCrear").textContent = "Subiendo...";
+  try {
+    const r = await api("/productos", { metodo: "POST", cuerpo });
+    cerrar(); npLimpiar();
+    aviso(`${r.nombre}: creado en Tiendanube${r.publicado ? " y publicado" : " (oculto)"}, con ${r.unidades} ${r.unidades === 1 ? "unidad" : "unidades"}.`);
+    if (pend.size) planillaVieja = true; else cargarPlanilla();
+  } catch (e) { msg.textContent = e.message; }
+  finally { NP.enviando = false; $("npCrear").disabled = false; $("npCrear").textContent = "Subir a Tiendanube"; }
+});
+$("cuerpo").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-publicar]"); if (!b) return;
+  const p = productos.find((x) => x.id === Number(b.dataset.publicar));
+  if (!confirm(`¿Publicar «${p ? p.nombre : "este modelo"}» en la tienda online? Desde ahí se ve también en la web mayorista.`)) return;
+  b.disabled = true;
+  try { await api(`/productos/${b.dataset.publicar}/publicar`, { metodo: "POST" }); if (p) p.publicado = true; pintar(); aviso("Publicado en la tienda online."); }
+  catch (err) { alert(err.message); b.disabled = false; }
+});
+
 /* ---------- curva ---------- */
 function leerCurva(texto) {
   const curva = {}; let resto = texto.toUpperCase();
@@ -892,7 +1087,9 @@ async function cargarHistorial() {
     const lotes = await api("/historial");
     caja.innerHTML = lotes.length ? lotes.map((l) => {
       const f = new Date(l.fecha).toLocaleString("es-AR", { dateStyle: "medium", timeStyle: "short" });
-      const det = l.entradas.slice().reverse().map((e) => e.accion === "incluido"
+      const det = l.entradas.slice().reverse().map((e) => e.accion === "creado"
+        ? `<div>Producto nuevo subido a Tiendanube: ${esc(e.producto)} (${esc(e.talle)}) · ${e.despues} camisetas</div>`
+        : e.accion === "incluido"
         ? `<div>Incluido en el mayorista: ${esc(e.producto)} (${esc(e.talle)}) · ${e.despues} camisetas de arranque</div>`
         : e.accion === "carga_inicial" ? `<div>Carga inicial desde la tienda: ${esc(e.talle)}, ${e.despues} camisetas</div>`
         : e.accion === "ignorado" ? `<div>Ignorado, no se ofrece en el mayorista: ${esc(e.producto)}</div>`

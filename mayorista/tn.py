@@ -127,6 +127,27 @@ def fijar_stock(producto: int, variante: int, cantidad: int) -> int:
     return _cambiar_stock(producto, variante, "replace", cantidad)
 
 
+# -- Crear productos (el alta desde el panel) ------------------------------------
+
+
+def crear_producto(cuerpo: dict) -> dict:
+    """Crea un producto con sus variantes. Devuelve el producto como lo guardó Tiendanube."""
+    return pedir("POST", "/products", cuerpo)
+
+
+def subir_foto(producto: int, base64_: str, nombre: str, posicion: int) -> dict:
+    """Sube una foto al producto: el archivo va en base64, sin el prefijo "data:...;base64,"."""
+    return pedir("POST", f"/products/{producto}/images", {"attachment": base64_, "filename": nombre, "position": posicion})
+
+
+def borrar_producto(producto: int) -> None:
+    pedir("DELETE", f"/products/{producto}")
+
+
+def publicar(producto: int, publicado: bool = True) -> dict:
+    return pedir("PUT", f"/products/{producto}", {"published": bool(publicado)})
+
+
 # -- Fotos --------------------------------------------------------------------
 
 CABECERAS_CDN = {

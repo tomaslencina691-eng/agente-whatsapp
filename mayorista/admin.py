@@ -173,6 +173,109 @@ class SubirLogo(BaseModel):
     datos: str = Field(max_length=2_000_000)  # la imagen en base64, con o sin el prefijo "data:image/...;base64,"
 
 
+# -- El alta de un producto nuevo ------------------------------------------------
+
+MAXIMO_DE_FOTOS = 8
+PESO_MAXIMO_DE_FOTO = 6 * 1024 * 1024  # ya decodificada; el navegador la achica antes de mandarla
+_TIPOS_DE_FOTO = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
+
+
+class TalleNuevo(BaseModel):
+    talle: str = Field(min_length=1, max_length=40)
+    stock: int = Field(ge=0, le=MAXIMO_DE_STOCK)
+    sku: str = Field(default="", max_length=60)
+
+
+class FotoNueva(BaseModel):
+    datos: str = Field(max_length=9_000_000)  # "data:image/jpeg;base64,..."
+
+
+class ProductoNuevo(BaseModel):
+    nombre: str = Field(min_length=3, max_length=200)
+    descripcion: str = Field(default="", max_length=20000)
+    categorias: list[int] = Field(default_factory=list, max_length=20)
+    precio: float = Field(gt=0, le=100_000_000)
+    precioPromocional: float | None = Field(default=None, gt=0, le=100_000_000)
+    peso: float | None = Field(default=None, ge=0, le=1000)  # kg
+    alto: float | None = Field(default=None, ge=0, le=1000)  # cm
+    ancho: float | None = Field(default=None, ge=0, le=1000)
+    profundidad: float | None = Field(default=None, ge=0, le=1000)
+    marca: str = Field(default="", max_length=100)
+    etiquetas: str = Field(default="", max_length=500)
+    publicado: bool = False
+    envioGratis: bool = False
+    talles: list[TalleNuevo] = Field(min_length=1, max_length=30)
+    fotos: list[FotoNueva] = Field(min_length=1, max_length=MAXIMO_DE_FOTOS)
+
+
+def foto_en_base64(datos: str) -> tuple[str, str]:
+    """Valida una foto que manda el navegador. Devuelve (base64 sin prefijo, extensión)."""
+    m = re.fullmatch(r"data:(image/[a-z]+);base64,([A-Za-z0-9+/=\s]+)", (datos or "").strip())
+    if not m or m.group(1) not in _TIPOS_DE_FOTO:
+        raise ValueError("Una de las fotos no es JPG, PNG ni WebP.")
+    crudo = re.sub(r"\s", "", m.group(2))
+    try:
+        contenido = base64.b64decode(crudo, validate=True)
+    except Exception:  # noqa: BLE001
+        raise ValueError("Una de las fotos llegó dañada: volvé a elegirla.") from None
+    if len(contenido) > PESO_MAXIMO_DE_FOTO:
+        raise ValueError("Una de las fotos pesa demasiado (más de 6 MB).")
+    return crudo, _TIPOS_DE_FOTO[m.group(1)]
+
+
+def _numero(valor: float | None) -> str | None:
+    return None if valor is None else f"{valor:.2f}"
+
+
+def _descripcion_html(texto: str) -> str:
+    """El texto plano del formulario, como párrafos de HTML (que es lo que guarda Tiendanube)."""
+    import html
+
+    parrafos = [p.strip() for p in re.split(r"\n\s*\n", texto or "") if p.strip()]
+    return "".join("<p>" + html.escape(p).replace("\n", "<br>") + "</p>" for p in parrafos)
+
+
+def cuerpo_para_tiendanube(datos: ProductoNuevo) -> dict:
+    """El producto como lo pide la API de Tiendanube: una variante por talle, con su stock contado."""
+    talles = [" ".join(t.talle.split()) for t in datos.talles]
+    if len({almacen.normalizar(t) for t in talles}) != len(talles):
+        raise ValueError("Hay dos talles iguales.")
+    if datos.precioPromocional is not None and datos.precioPromocional >= datos.precio:
+        raise ValueError("El precio promocional tiene que ser menor que el precio.")
+    variantes = []
+    for talle, t in zip(talles, datos.talles):
+        v = {
+            "values": [{"es": talle}],
+            "price": _numero(datos.precio),
+            "stock_management": True,
+            "stock": t.stock,
+        }
+        if datos.precioPromocional is not None:
+            v["promotional_price"] = _numero(datos.precioPromocional)
+        if t.sku.strip():
+            v["sku"] = t.sku.strip()
+        for campo, valor in (("weight", datos.peso), ("height", datos.alto), ("width", datos.ancho), ("depth", datos.profundidad)):
+            if valor is not None:
+                v[campo] = _numero(valor)
+        variantes.append(v)
+    cuerpo = {
+        "name": {"es": " ".join(datos.nombre.split())},
+        "description": {"es": _descripcion_html(datos.descripcion)},
+        "published": datos.publicado,
+        "free_shipping": datos.envioGratis,
+        "attributes": [{"es": "Talle"}],
+        "variants": variantes,
+    }
+    if datos.categorias:
+        cuerpo["categories"] = list(dict.fromkeys(datos.categorias))
+    if datos.marca.strip():
+        cuerpo["brand"] = datos.marca.strip()
+    etiquetas = [e.strip() for e in datos.etiquetas.split(",") if e.strip()]
+    if etiquetas:
+        cuerpo["tags"] = ",".join(etiquetas)
+    return cuerpo
+
+
 # -- Ayudantes ----------------------------------------------------------------
 
 
@@ -776,6 +879,79 @@ def crear_router(
         anotar(hist.lote_nuevo(), usuario, [{"accion": "carga_inicial", "producto_id": 0, "producto": "Carga inicial desde la tienda", "talle": f"{len({f[0] for f in filas})} modelos", "antes": None, "despues": sum(f[2] for f in filas)}])
         invalidar_cache()
         return {"talles": n, "modelos": len({f[0] for f in filas})}
+
+    # -- Subir un producto nuevo a Tiendanube --
+
+    def _olvidar_lo_leido() -> None:
+        tienda["t"] = 0.0
+        if callable(getattr(almacen_, "invalidar", None)):
+            almacen_.invalidar()
+        invalidar_cache()
+
+    @router.get("/productos/categorias")
+    def productos_categorias(usuario: str = Depends(usuario_actual)) -> dict:
+        """Las categorías de la tienda, para elegir en el alta. Las subcategorías llevan el nombre de la de arriba."""
+        try:
+            lista = tn.categorias()
+        except tn.ErrorDeTiendanube as e:
+            raise HTTPException(502, str(e)) from None
+        por_id = {c["id"]: c for c in lista}
+
+        def ruta(c: dict, vueltas: int = 0) -> str:
+            propio = (c.get("name") or {}).get("es") or f"Categoría {c['id']}"
+            padre = por_id.get(c.get("parent"))
+            return f"{ruta(padre, vueltas + 1)} › {propio}" if padre and vueltas < 5 else propio
+
+        salida = [{"id": c["id"], "nombre": ruta(c)} for c in lista]
+        salida.sort(key=lambda c: c["nombre"].lower())
+        return {"categorias": salida}
+
+    @router.post("/productos")
+    def producto_nuevo(datos: ProductoNuevo, usuario: str = Depends(usuario_actual)) -> dict:
+        """Crea el producto en Tiendanube (con sus fotos) y lo suma al mayorista. Todo o nada."""
+        try:
+            cuerpo = cuerpo_para_tiendanube(datos)
+            fotos = [foto_en_base64(f.datos) for f in datos.fotos]
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from None
+        try:
+            p = tn.crear_producto(cuerpo)
+        except tn.ErrorDeTiendanube as e:
+            raise HTTPException(502, f"Tiendanube no creó el producto: {e}") from None
+        id = p["id"]
+        for i, (b64, ext) in enumerate(fotos, start=1):
+            try:
+                tn.subir_foto(id, b64, f"foto-{i}.{ext}", i)
+            except tn.ErrorDeTiendanube as e:
+                # Sin todas sus fotos no queda: se borra, para no dejar un producto a medias en la tienda.
+                try:
+                    tn.borrar_producto(id)
+                    queda = "No quedó nada creado: probá de nuevo."
+                except tn.ErrorDeTiendanube:
+                    log.exception("No se pudo borrar el producto %s después de fallar una foto", id)
+                    queda = f"El producto quedó creado en Tiendanube sin todas sus fotos (id {id}): borralo o completalo desde Tiendanube."
+                raise HTTPException(502, f"No se pudo subir la foto {i}: {e}. {queda}") from None
+        modelo = _nombre_de(p, id)
+        nombres[id] = modelo
+        filas = filas_de_producto(p, True)
+        almacen_.cargar(filas)
+        almacen_.designorar(id)
+        anotar(hist.lote_nuevo(), usuario, [{"accion": "creado", "producto_id": id, "producto": modelo, "talle": ", ".join(t for _, t, _ in filas), "antes": None, "despues": sum(n for _, _, n in filas)}])
+        _olvidar_lo_leido()
+        return {"id": id, "nombre": modelo, "publicado": bool(p.get("published")), "talles": len(filas), "unidades": sum(n for _, _, n in filas)}
+
+    @router.post("/productos/{producto}/publicar")
+    def producto_publicar(producto: int, usuario: str = Depends(usuario_actual)) -> dict:
+        """Publica en la tienda online un modelo que estaba oculto: desde ahí se ve también en la web mayorista."""
+        if producto not in almacen_.incluidos():
+            raise HTTPException(404, "Ese modelo no está en el mayorista.")
+        try:
+            tn.publicar(producto, True)
+        except tn.ErrorDeTiendanube as e:
+            raise HTTPException(502, str(e)) from None
+        anotar(hist.lote_nuevo(), usuario, [{"accion": "config", "producto_id": producto, "producto": nombre(producto), "talle": "publicado en la tienda online", "antes": None, "despues": None}])
+        _olvidar_lo_leido()
+        return {"publicado": True}
 
     # -- La web mayorista --
 
