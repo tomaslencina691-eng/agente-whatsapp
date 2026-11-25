@@ -35,6 +35,7 @@ import avisos as avisos_mod
 import historial as hist
 import mp
 import pagos as cruce_de_pagos
+import precios
 import tn
 
 log = logging.getLogger("mayorista.admin")
@@ -979,6 +980,25 @@ def crear_router(
 
     def _web_actual() -> dict:
         return ajustes.combinar(web_defecto() if web_defecto else {}, _web_guardada())
+
+    @router.get("/web/revision-precios")
+    def web_revision_precios(usuario: str = Depends(usuario_actual)) -> dict:
+        """Qué modelos se cobran como «con parche y número» solos, y cuáles están en dos calidades a la vez."""
+        lineas = _web_actual()["lineas"]
+        categorias = _categorias_actuales()
+        incluidos = almacen_.incluidos()
+        personalizados, dobles = [], []
+        for p in _productos_de_la_tienda(guardados=True):
+            if p["id"] not in incluidos or not p.get("published"):
+                continue
+            modelo = {"id": p["id"], "nombre": _nombre_de(p, p["id"])}
+            if precios.ya_personalizado(modelo["nombre"], [talle_de(v) for v in p.get("variants") or []]):
+                personalizados.append(modelo)
+            posibles = precios.lineas_posibles(categorias_del_producto(p, categorias), lineas)
+            if len(posibles) > 1:
+                dobles.append({**modelo, "lineas": [l["nombre"] for l in posibles], "cobra": posibles[0]["nombre"]})
+        orden = lambda m: m["nombre"].lower()  # noqa: E731
+        return {"personalizados": sorted(personalizados, key=orden), "dobles": sorted(dobles, key=orden)}
 
     @router.get("/web")
     def web_ver(usuario: str = Depends(usuario_actual)) -> dict:

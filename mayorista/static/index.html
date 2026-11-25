@@ -412,13 +412,17 @@ const unidadesDe = (id) => unidadesDeK(String(id)) + unidadesDeK(id + "p");
 const total = () => Object.keys(pedido).reduce((a, k) => a + unidadesDeK(k), 0);
 /* La línea «con parche y número» de cada línea base (si la tiene). */
 const variantes = () => Object.fromEntries(CFG.lineas.filter((l) => l.personalizadaDe).map((l) => [l.personalizadaDe, l.id]));
-const tienePers = (p) => !!(p && p.linea && variantes()[p.linea]);
+const tienePers = (p) => !!(p && p.linea && variantes()[p.linea] && !p.personalizada); // los que ya vienen con dorsal no eligen
 function precioUnidad(n) { const t = CFG.tramos.find((t) => n >= t.desde); return t ? t.precio : null; }
 
 /* Precios por línea (misma cuenta que precios.py). Las unidades se cuentan dentro de cada línea:
    no se mezclan calidades, sí modelos. Cada línea del pedido tiene que llegar a su mínimo.
    Sin líneas, rige la escala única de siempre. */
-const lineaClave = (k) => { const base = ((porId.get(idDe(k)) || {}).linea) || ""; return esPers(k) ? (variantes()[base] || base) : base; };
+/* Con parche y número va en la clave con p. Los talles que ya vienen con dorsal o parche (t.pers) se
+   guardan ahí solos al cargarlos: el cliente no elige (ver precios.talle_personalizado). */
+const persDe = (k) => esPers(k);
+const talleConDorsal = (p, talle) => !!((p.talles.find((t) => t.talle === talle) || {}).pers);
+const lineaClave = (k) => { const base = ((porId.get(idDe(k)) || {}).linea) || ""; return persDe(k) ? (variantes()[base] || base) : base; };
 const idsDe = (k) => Object.keys(pedido).filter((id) => lineaClave(id) === k);
 function grupos() {
   const salida = [];
@@ -516,6 +520,7 @@ let variante = "l";
 function abrirTalles(id, pers) {
   const p = porId.get(id); if (!p) return;
   editando = id; borrador = { l: { ...(pedido[String(id)] || {}) }, p: { ...(pedido[id + "p"] || {}) } };
+  if (p.personalizada) { borrador = { l: { ...borrador.l, ...borrador.p }, p: {} }; } // se cargan juntos y se separan al guardar
   variante = pers && tienePers(p) ? "p" : "l";
   $("tImg").src = `/img/${p.id}/1`; $("tImg").alt = "";
   $("tNombre").textContent = p.nombre; $("tVersion").textContent = etiquetaDe(p); $("tVersion").hidden = !etiquetaDe(p);
@@ -552,6 +557,12 @@ $("tTalles").addEventListener("click", (e) => {
   pintarTalles();
 });
 $("tGuardar").addEventListener("click", () => {
+  const p = porId.get(editando);
+  if (p && p.personalizada) {
+    const lisa = {}, conDorsal = {};
+    Object.entries(borrador.l).forEach(([t, n]) => { if (n > 0) (talleConDorsal(p, t) ? conDorsal : lisa)[t] = n; });
+    borrador = { l: lisa, p: conDorsal };
+  }
   [["l", String(editando)], ["p", editando + "p"]].forEach(([v, k]) => {
     const t = Object.fromEntries(Object.entries(borrador[v]).filter(([, n]) => n > 0));
     if (Object.keys(t).length) pedido[k] = t; else delete pedido[k];
@@ -576,7 +587,7 @@ function codigoActual() {
 /* Si el servidor no contesta, el pedido sale igual por WhatsApp: esto no lo frena. */
 function registrarPedido() {
   const d = datos(), items = [];
-  for (const [k, talles] of Object.entries(pedido)) for (const [talle, n] of Object.entries(talles)) if (n > 0) items.push({ producto: idDe(k), talle, cantidad: n, pers: esPers(k) });
+  for (const [k, talles] of Object.entries(pedido)) for (const [talle, n] of Object.entries(talles)) if (n > 0) items.push({ producto: idDe(k), talle, cantidad: n, pers: persDe(k) });
   try {
     fetch("/api/pedido", { method: "POST", headers: { "Content-Type": "application/json" }, keepalive: true,
       body: JSON.stringify({ codigo: codigoActual(), items, nombre: d.nombre.slice(0, 80), negocio: d.negocio.slice(0, 120), notas: d.notas.slice(0, 600),
@@ -594,7 +605,7 @@ function renderMensaje(plantilla, v) {
 function mensaje() {
   const d = datos(); const n = total(); const conLineas = CFG.lineas.length > 0;
   const pu = conLineas ? null : precioUnidad(n), tp = conLineas ? totalPrecio() : (pu ? pu * n : null);
-  const renglon = (id, i) => { const p = porId.get(idDe(id)); const e = etiquetaCorta(p); return `${i}) ${p.nombre}${e ? ` (${e})` : ""}${esPers(id) ? " · con parche y número" : ""}\n   ${detalleTalles(pedido[id])}`; };
+  const renglon = (id, i) => { const p = porId.get(idDe(id)); const e = etiquetaCorta(p); return `${i}) ${p.nombre}${e ? ` (${e})` : ""}${persDe(id) ? " · con parche y número" : ""}\n   ${detalleTalles(pedido[id])}`; };
   let i = 0, cuerpo;
   if (conLineas) {
     /* Con líneas, cada una va con su cabecera: cantidad, precio y subtotal. Así el equipo ve qué escala se aplicó. */
@@ -617,7 +628,7 @@ function pintarPedido() {
     $("pPie").innerHTML = `<button class="secundario" type="button" data-cerrar>Seguir mirando</button>`; return;
   }
   const tarjetaPed = (id) => { const p = porId.get(idDe(id)); const e = etiquetaDe(p); return `<div class="linea-ped"><img src="/img/${p.id}/1" alt="">
-    <div><h4>${esc(p.nombre)}${esPers(id) ? '<span class="etiqueta-pers">Parche y número</span>' : ""}</h4><div class="det">${e ? esc(e) + " · " : ""}${unidadesDeK(id)} u.</div><div class="det">${esc(detalleTalles(pedido[id]))}</div></div>
+    <div><h4>${esc(p.nombre)}${persDe(id) ? '<span class="etiqueta-pers">Parche y número</span>' : ""}</h4><div class="det">${e ? esc(e) + " · " : ""}${unidadesDeK(id)} u.</div><div class="det">${esc(detalleTalles(pedido[id]))}</div></div>
     <div class="acc"><button type="button" data-editar="${id}">Editar</button><button type="button" data-quitar="${id}">Quitar</button></div></div>`; };
   const conLineas = CFG.lineas.length > 0, gs = conLineas ? grupos() : [];
   const lineas = conLineas
@@ -742,12 +753,13 @@ function depurarPedido() {
   for (const k of claves) {
     const p = porId.get(idDe(k)); if (!p) continue;
     const destino = esPers(k) && !tienePers(p) ? String(idDe(k)) : k; // sin variante, vuelven a ser lisas
-    const mantener = { ...(limpio[destino] || {}) };
     for (const t of p.talles) {
       const clave = idDe(k) + "|" + t.talle, n = Math.min((pedido[k] || {})[t.talle] || 0, Math.max(0, maximoDe(t) - (usadas[clave] || 0)));
-      if (n > 0) { mantener[t.talle] = (mantener[t.talle] || 0) + n; usadas[clave] = (usadas[clave] || 0) + n; }
+      if (n <= 0) continue;
+      /* Los talles que ya vienen con dorsal van siempre con parche y número; los demás de ese modelo, lisos. */
+      const d = p.personalizada ? (t.pers ? idDe(k) + "p" : String(idDe(k))) : destino;
+      limpio[d] = limpio[d] || {}; limpio[d][t.talle] = (limpio[d][t.talle] || 0) + n; usadas[clave] = (usadas[clave] || 0) + n;
     }
-    if (Object.keys(mantener).length) limpio[destino] = mantener;
   }
   pedido = limpio;
 }

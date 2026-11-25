@@ -445,6 +445,7 @@ details.np-mas .cuerpo { display: grid; gap: 12px; padding-top: 12px; }
           <div class="campo"><label for="wHitos">Metas de la barra para pedidos grandes</label><input id="wHitos" inputmode="numeric" autocomplete="off" placeholder="50, 100, 200">
             <span class="ayuda">Después del mejor precio, la barra de cada línea sigue hasta estas cantidades (y después de a 100). Vacío = la barra queda llena.</span></div>
         </div>
+        <div class="campo"><label>Revisión de precios</label><div id="wRevision" class="ayuda">Cargando...</div></div>
         <label class="opcion"><input type="checkbox" id="wOcultarPrecios" data-w="ocultarPrecios"><span><b>Ocultar los precios</b><small>La web no muestra las escalas ni el total: pide que el equipo los confirme.</small></span></label>
         <label class="opcion"><input type="checkbox" id="wMantenimiento" data-w="mantenimiento"><span><b>Página en construcción</b><small>La web entera queda tapada por un cartel: no se ve el catálogo ni se puede pedir nada. Apagalo para volver a abrirla.</small></span></label>
         <div class="campo"><label for="wMensajeMantenimiento">Texto del cartel de construcción</label><textarea id="wMensajeMantenimiento" data-w="mensajeMantenimiento" rows="2" maxlength="300"></textarea></div>
@@ -1281,9 +1282,18 @@ const COLORES = [["#1fd65f", "Verde cancha"], ["#3aa9ff", "Celeste"], ["#ffc72c"
 const DATOS_MENSAJE = ["marca", "codigo", "nombre", "negocio", "pedido", "envio", "unidades", "precio", "total", "notas", "condiciones"];
 const dinero2 = (n) => "$" + Number(n).toLocaleString("es-AR");
 
+async function cargarRevisionPrecios() {
+  const caja = $("wRevision");
+  try {
+    const r = await api("/web/revision-precios");
+    const lista = (xs, f) => xs.length ? `<ul style="margin:4px 0 0;padding-left:18px">${xs.map(f).join("")}</ul>` : "";
+    caja.innerHTML = `<div><b>Se cobran como «con parche y número» solos (${r.personalizados.length})</b>: ya traen dorsal o parche (el talle dice el jugador o el nombre dice Dorsal o Parche). Si alguno no corresponde, sacale «Dorsal» o «Parche» del nombre en Tiendanube.${lista(r.personalizados, (m) => `<li>${esc(m.nombre)}</li>`)}</div>`
+      + (r.dobles.length ? `<div style="margin-top:10px;color:var(--error)"><b>En dos calidades a la vez (${r.dobles.length})</b>: se cobran con la primera. Dejales una sola categoría de calidad en Tiendanube.${lista(r.dobles, (m) => `<li>${esc(m.nombre)}: ${m.lineas.map(esc).join(" y ")} → hoy se cobra como ${esc(m.cobra)}</li>`)}</div>` : '<div style="margin-top:10px">Ningún modelo está en dos calidades a la vez.</div>');
+  } catch (e) { caja.textContent = "No se pudo revisar: " + e.message; }
+}
 async function cargarWeb() {
   $("msgWeb").textContent = "";
-  try { const d = await api("/web"); W = d.ajustes; W.lineas = W.lineas || []; webPorDefecto = d.porDefecto; webCategorias = d.categorias || []; WBASE = firmaWeb(); pintarFormWeb(); }
+  try { const d = await api("/web"); W = d.ajustes; W.lineas = W.lineas || []; webPorDefecto = d.porDefecto; webCategorias = d.categorias || []; WBASE = firmaWeb(); pintarFormWeb(); cargarRevisionPrecios(); }
   catch (e) { $("msgWeb").className = "mensaje"; $("msgWeb").textContent = "No se pudo cargar: " + e.message; }
 }
 function pintarFormWeb() {

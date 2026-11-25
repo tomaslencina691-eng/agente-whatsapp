@@ -249,6 +249,10 @@ def armar_catalogo(productos: list[dict], stock: dict[int, dict[str, int]] | Non
         if not talles:
             continue
         talles.sort(key=lambda t: _clave_de_talle(t["talle"]))
+        nombre_tn = (p.get("name") or {}).get("es") or ""
+        for t in talles:
+            if precios.talle_personalizado(nombre_tn, t["talle"]):
+                t["pers"] = True
 
         fotos = _fotos_de(p)
         if not fotos:
@@ -264,9 +268,16 @@ def armar_catalogo(productos: list[dict], stock: dict[int, dict[str, int]] | Non
                 "version": version_de(nombre),
                 "fotos": len(fotos),
                 "talles": talles,
+                # Algún talle ya trae dorsal o parche: esos se cobran como «con parche y número» (ver precios.talle_personalizado).
+                "personalizada": any(t.get("pers") for t in talles),
             }
         )
     return catalogo, imagenes
+
+
+def _nombres_de_la_tienda() -> dict[int, str]:
+    """El nombre de cada modelo tal como está en Tiendanube (sirve para saber si ya trae dorsal o parche)."""
+    return {p["id"]: (p.get("name") or {}).get("es") or "" for p in _cache["productos"] or []}
 
 
 def _actualizar_si_hace_falta() -> None:
@@ -592,8 +603,11 @@ def api_pedido(datos: PedidoNuevo, request: Request) -> dict:
         raise HTTPException(429, "Demasiados pedidos seguidos. Probá de nuevo más tarde.")
 
     nombres = {p["id"]: nombre_limpio((p.get("name") or {}).get("es") or "") for p in _cache["productos"] or []}
+    # Un talle que ya viene con dorsal o parche se cobra así aunque la web no lo haya marcado.
+    de_la_tienda = _nombres_de_la_tienda()
     items = [
-        {"producto": i.producto, "talle": almacen.limpiar_talle(i.talle), "cantidad": i.cantidad, "nombre": nombres.get(i.producto) or f"Modelo {i.producto}", **({"pers": True} if i.pers else {})}
+        {"producto": i.producto, "talle": almacen.limpiar_talle(i.talle), "cantidad": i.cantidad, "nombre": nombres.get(i.producto) or f"Modelo {i.producto}",
+         **({"pers": True} if i.pers or precios.talle_personalizado(de_la_tienda.get(i.producto, ""), i.talle) else {})}
         for i in datos.items
     ]
     unidades = sum(i["cantidad"] for i in items)

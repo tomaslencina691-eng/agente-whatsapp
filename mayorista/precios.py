@@ -17,6 +17,7 @@ total antes de enviar: si cambia una, hay que cambiar la otra.
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Callable, Iterable
 
 # Con el tope por talle, un talle siempre puede llevar al menos estas camisetas,
@@ -127,3 +128,34 @@ def talles_desparejos(items: list[tuple], lineas: list[dict], tope: int, nombre_
             if n > maximo:
                 salida.append({"linea": nombres[clave], "talle": talle, "cantidad": n, "maximo": maximo, "total": total})
     return salida
+
+
+# -- Modelos que ya vienen con dorsal o parche ----------------------------------------
+#
+# Hay modelos que en Tiendanube ya traen el dorsal o el parche: el talle dice el
+# jugador («XL, Neymar 11») o el nombre dice «Con Dorsal» / «Parche Serie A». Se
+# cobran en la línea «con parche y número» sin que el cliente lo elija: si no,
+# quedaban al precio de la lisa. Se decide TALLE POR TALLE: un short puede tener
+# «L, 17» (con número) y «M, Sin número» (liso) en el mismo modelo.
+
+_SIN_PERSONALIZAR = re.compile(r"^(sin\s+(n[uú]mero|dorsal|nombre|parche)|lis[ao]s?)$", re.IGNORECASE)
+_EN_EL_NOMBRE = re.compile(r"dorsal|parche", re.IGNORECASE)
+
+
+def talle_personalizado(nombre: str, talle: str) -> bool:
+    """Si ese talle de ese modelo ya viene con dorsal o parche."""
+    if _EN_EL_NOMBRE.search(nombre or ""):
+        return True
+    partes = str(talle or "").split(",", 1)
+    return len(partes) == 2 and bool(partes[1].strip()) and not _SIN_PERSONALIZAR.match(partes[1].strip())
+
+
+def ya_personalizado(nombre: str, talles: Iterable[str]) -> bool:
+    """Si el modelo tiene algún talle que ya viene con dorsal o parche."""
+    return any(talle_personalizado(nombre, t) for t in talles) or bool(_EN_EL_NOMBRE.search(nombre or ""))
+
+
+def lineas_posibles(cats: Iterable[str], lineas: list[dict]) -> list[dict]:
+    """Todas las líneas (sin contar las variantes) en las que entra un modelo. Más de una es un error de categorías."""
+    cats = set(cats)
+    return [l for l in lineas if not l.get("personalizadaDe") and cats & set(l.get("cats") or [])]

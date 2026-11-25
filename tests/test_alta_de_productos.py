@@ -228,3 +228,16 @@ def test_no_se_quita_un_modelo_que_sigue_en_la_tienda(sesion, tienda, alm):
 
     assert r.status_code == 409
     assert alm.filas([1]), "el modelo 1 sigue en la planilla"
+
+
+# -- Revisión de precios en el panel -----------------------------------------------------
+
+
+def test_la_revision_lista_los_modelos_con_dorsal(sesion, tienda):
+    tienda.productos[1]["name"] = {"es": "Boca Juniors - Titular 26/27 – Con Dorsal"}
+
+    r = sesion.get("/admin/api/web/revision-precios")
+
+    assert r.status_code == 200
+    assert [m["id"] for m in r.json()["personalizados"]] == [1], "el 2 está oculto en la tienda"
+    assert r.json()["dobles"] == []
