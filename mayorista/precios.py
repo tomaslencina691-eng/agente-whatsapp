@@ -16,7 +16,15 @@ total antes de enviar: si cambia una, hay que cambiar la otra.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Iterable
+
+# Con el tope por talle, un talle siempre puede llevar al menos estas camisetas,
+# aunque el porcentaje dé menos (6 camisetas al 30 % darían 1).
+MINIMO_POR_TALLE = 2
+
+# Los nombres que usa la tienda para el mismo talle.
+_SINONIMOS = {"2XL": "XXL", "3XL": "XXXL", "4XL": "XXXXL"}
 
 
 def linea_de(cats: Iterable[str], lineas: list[dict]) -> dict | None:
@@ -72,3 +80,50 @@ def total_del_pedido(
             return None
         total += precio * sin_linea
     return total
+
+
+# -- Pedido parejo por talle ------------------------------------------------------
+#
+# Dentro de cada línea (calidad), un mismo talle no puede ser más que `tope` % de
+# las camisetas de esa línea, con un piso de MINIMO_POR_TALLE. Los modelos se
+# mezclan libremente: lo que se cuenta es el talle. Así nadie se lleva 12 L.
+# La web repite esta cuenta en JavaScript (static/index.html).
+
+
+def talle_base(talle: str) -> str:
+    """El talle sin el nombre ni el número: «L, Di María 22» es una L; «2XL» es XXL."""
+    base = str(talle or "").split(",")[0].strip().upper()
+    return _SINONIMOS.get(base, base)
+
+
+def maximo_por_talle(total: int, tope: int) -> int:
+    """Cuántas camisetas de un mismo talle se pueden llevar en una línea con `total` camisetas."""
+    return max(MINIMO_POR_TALLE, math.floor(total * tope / 100))
+
+
+def talles_desparejos(items: list[tuple], lineas: list[dict], tope: int, nombre_sin_linea: str = "Otros modelos") -> list[dict]:
+    """Los talles que se pasan del tope: [(categorías, talle, cantidad[, con parche y número])].
+
+    Devuelve [{linea, talle, cantidad, maximo, total}] (vacío si el pedido es parejo o no hay tope).
+    """
+    if not tope:
+        return []
+    por_linea: dict[str, dict[str, int]] = {}
+    nombres: dict[str, str] = {}
+    for cats, talle, cantidad, *resto in items:
+        l = linea_de(cats, lineas)
+        if l is not None and resto and resto[0]:
+            l = variante_de(l, lineas)
+        clave = l["id"] if l else ""
+        nombres[clave] = l["nombre"] if l else nombre_sin_linea
+        talles = por_linea.setdefault(clave, {})
+        base = talle_base(talle)
+        talles[base] = talles.get(base, 0) + cantidad
+    salida = []
+    for clave, talles in por_linea.items():
+        total = sum(talles.values())
+        maximo = maximo_por_talle(total, tope)
+        for talle, n in talles.items():
+            if n > maximo:
+                salida.append({"linea": nombres[clave], "talle": talle, "cantidad": n, "maximo": maximo, "total": total})
+    return salida

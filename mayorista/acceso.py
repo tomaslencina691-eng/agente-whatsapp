@@ -190,6 +190,20 @@ def grupo_de(ruta: str) -> str:
 # -- Bloqueo por intentos ------------------------------------------------------
 
 
+def ip_del_pedido(x_forwarded_for: str | None, ip_directa: str | None) -> str:
+    """La IP de quien pide, para los frenos (login y pedidos).
+
+    Se toma la ÚLTIMA dirección de X-Forwarded-For, no la primera: la primera
+    la puede escribir el navegador (cualquiera manda el header que quiere), y
+    con una distinta en cada intento esquivaba el bloqueo. La última la agrega
+    el proxy del servidor (Traefik en Coolify), que es el único en quien se
+    confía. Sin header (sin proxy), la de la conexión.
+    """
+    partes = [p.strip() for p in (x_forwarded_for or "").split(",") if p.strip()]
+    return partes[-1] if partes else (ip_directa or "")
+
+
+
 def bloqueado(ip: str, ahora: float | None = None) -> bool:
     ahora = ahora or time.time()
     recientes = [t for t in _fallos.get(ip, []) if ahora - t < VENTANA_SEGUNDOS]

@@ -156,9 +156,11 @@ def consultar_pedido(nombre: str, correo: str, numero_orden: str) -> str:
     datos — nombre completo, correo, y número de orden (el que le llegó por
     mail al comprar) — y no llames a la herramienta hasta tener los tres.
 
-    El número de orden es la clave de todo: sin el número correcto no se
-    entrega ninguna información, aunque el nombre y el correo sean
-    perfectos. Si la herramienta dice que no pudo verificar el pedido, no
+    Hacen falta los tres: el número de orden, el correo de esa compra y el
+    nombre y apellido. Si alguno no coincide no se entrega ninguna
+    información. Sirve para los pedidos de la tienda online (número de orden
+    del mail); los pedidos de la web mayorista (código A-XXXXX) no están
+    acá: esos los ve el equipo. Si la herramienta dice que no pudo verificar el pedido, no
     inventes ni supongas nada — pedile que revise los datos, o derivá a una
     persona del equipo si insiste en que están bien.
 
@@ -734,19 +736,24 @@ def _buscar_alternativas(producto: dict, maximo: int = 3, stock: dict[int, dict[
 
 
 def _coincide_con_el_pedido(pedido: dict, nombre: str, correo: str) -> bool:
-    """True si el correo coincide exacto, o si el nombre coincide razonablemente."""
+    """True solo si coinciden el correo (exacto) Y el nombre (palabra por palabra).
+
+    Tienen que coincidir los dos: los números de orden de Tiendanube son
+    correlativos, así que el número solo no prueba nada. Antes alcanzaba con
+    uno de los dos, y como el nombre se comparaba como texto suelto, una
+    letra ("a") entraba en cualquier nombre y abría pedidos ajenos.
+    """
     correo_pedido = (pedido.get("contact_email") or "").strip().lower()
-    if correo_pedido and correo.strip().lower() == correo_pedido:
-        return True
+    if not correo_pedido or correo.strip().lower() != correo_pedido:
+        return False
 
-    nombre_pedido = _normalizar(pedido.get("contact_name") or "")
-    nombre_dado = _normalizar(nombre)
-    if nombre_pedido and nombre_dado and (
-        nombre_dado in nombre_pedido or nombre_pedido in nombre_dado
-    ):
-        return True
-
-    return False
+    # El nombre se compara por palabras enteras: todas las que dio la persona
+    # tienen que estar en el del pedido, y tienen que ser al menos dos (nombre
+    # y apellido). Así "Juan Pérez" sirve para "Juan Carlos Pérez", pero "a" o
+    # "Juan" solo, no.
+    palabras_pedido = set(_normalizar(pedido.get("contact_name") or "").split())
+    palabras_dadas = [p for p in _normalizar(nombre).split() if len(p) >= 2]
+    return len(palabras_dadas) >= 2 and all(p in palabras_pedido for p in palabras_dadas)
 
 
 def _normalizar(texto: str) -> str:

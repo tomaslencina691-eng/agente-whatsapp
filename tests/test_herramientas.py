@@ -332,3 +332,33 @@ def test_sin_el_stock_compartido_rige_el_de_la_base_y_no_se_consulta_tiendanube(
     monkeypatch.setattr(herramientas, "_catalogo_completo", no_deberia_llamarse)
 
     assert herramientas._stock_mayorista() == {1: {"L": 4}}
+
+
+# -- consultar_pedido: quién puede ver un pedido ---------------------------------
+
+_PEDIDO = {"contact_email": "juan.perez@mail.com", "contact_name": "Juan Carlos Pérez"}
+
+
+@pytest.mark.parametrize(
+    "nombre, correo",
+    [
+        ("Juan Pérez", "juan.perez@mail.com"),
+        ("juan carlos perez", "  JUAN.PEREZ@mail.com "),
+    ],
+)
+def test_el_pedido_se_ve_con_correo_y_nombre(nombre, correo):
+    assert herramientas._coincide_con_el_pedido(_PEDIDO, nombre, correo)
+
+
+@pytest.mark.parametrize(
+    "nombre, correo",
+    [
+        ("a", "juan.perez@mail.com"),  # una letra entraba en cualquier nombre
+        ("Juan", "juan.perez@mail.com"),  # falta el apellido
+        ("Juan Gómez", "juan.perez@mail.com"),  # el apellido no es
+        ("Juan Pérez", "otro@mail.com"),  # el nombre solo no alcanza
+        ("Juan Pérez", ""),
+    ],
+)
+def test_el_pedido_no_se_ve_si_falta_uno_de_los_dos(nombre, correo):
+    assert not herramientas._coincide_con_el_pedido(_PEDIDO, nombre, correo)

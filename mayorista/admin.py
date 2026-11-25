@@ -349,7 +349,7 @@ def filas_iniciales(productos: list[dict]) -> list[tuple[int, str, int]]:
 
 ETIQUETAS_DE_AJUSTES = {
     "marca": "nombre", "bandaIzq": "banda", "bandaDer": "banda", "titulo": "título", "bajada": "texto de portada", "color": "color",
-    "whatsapp": "WhatsApp", "whatsappAlterno": "WhatsApp alternativo", "pedirEnvio": "datos de envío", "pago": "cómo pagar", "mensaje": "mensaje del pedido", "minimo": "pedido mínimo", "tramos": "precios", "lineas": "precios por línea", "pausa": "pausa de pedidos",
+    "whatsapp": "WhatsApp", "whatsappAlterno": "WhatsApp alternativo", "pedirEnvio": "datos de envío", "pago": "cómo pagar", "aliasPago": "alias", "titularPago": "titular de la cuenta", "cuentaPago": "cuenta", "mensaje": "mensaje del pedido", "minimo": "pedido mínimo", "tramos": "precios", "lineas": "precios por línea", "topeTalle": "tope por talle", "hitos": "metas de la barra", "pausa": "pausa de pedidos",
     "aviso": "aviso", "limitarStock": "límite de stock", "filtroVersion": "filtro de versión", "mostrarUnidades": "unidades que quedan",
     "ocultarPrecios": "precios ocultos", "orden": "orden", "reglas": "reglas", "condiciones": "condiciones", "cierre": "cierre", "pie": "pie",
     "horario": "horario", "instagram": "Instagram", "tiendaUrl": "enlace a la tienda", "seoTitulo": "título en Google", "seoDescripcion": "descripción en Google",
@@ -434,7 +434,7 @@ def crear_router(
 
     @router.post("/login")
     def login(datos: Login, request: Request, response: Response, _=Depends(exigir_panel)) -> dict:
-        ip = (request.headers.get("x-forwarded-for") or (request.client.host if request.client else "")).split(",")[0].strip()
+        ip = acceso.ip_del_pedido(request.headers.get("x-forwarded-for"), request.client.host if request.client else "")
         if acceso.bloqueado(ip):
             raise HTTPException(429, "Demasiados intentos. Probá de nuevo en unos minutos.")
         persona = acceso.autenticar(almacen_, datos.usuario, datos.clave)
@@ -1291,6 +1291,7 @@ def crear_router(
             "codigo": p["codigo"], "fecha": p["fecha"], "estado": p["estado"], "unidades": p["unidades"], "total": p["total"],
             "nombre": datos.get("nombre", ""), "negocio": datos.get("negocio", ""), "notas": datos.get("notas", ""),
             "envio": datos.get("envio") or {}, "items": items, "falta": falta, "pagoDetectado": cobro,
+            "desparejo": datos.get("tallesDesparejos") or [],
         }
 
     @router.get("/pedidos")

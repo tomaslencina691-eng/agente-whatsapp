@@ -217,6 +217,8 @@ a { color: inherit; }
 .barra { height: 10px; border-radius: 99px; background: var(--negro); position: relative; overflow: hidden; border: 1px solid var(--linea); }
 .barra i { position: absolute; inset: 0 auto 0 0; background: var(--verde); border-radius: 99px; transition: width .25s; }
 .meter p { margin: 0; font-size: 14px; }
+.meter p.reparto { font-size: 13px; color: var(--gris); }
+.meter p.aviso-talle { color: #ffb347; }
 .totales { display: grid; gap: 4px; font-variant-numeric: tabular-nums; }
 .totales div { display: flex; justify-content: space-between; gap: 12px; }
 .totales .gran { font-family: var(--display); font-size: 34px; line-height: 1.05; font-weight: 800; color: var(--verde); }
@@ -229,6 +231,12 @@ a { color: inherit; }
 .resumen-ped div { display: flex; justify-content: space-between; gap: 12px; }
 .resumen-ped span { color: var(--gris); }
 .pago-ped { border: 1.5px dashed color-mix(in srgb, var(--verde) 60%, transparent); border-radius: var(--radio); padding: 12px 14px; font-size: 14px; background: var(--negro-3); }
+.transferir { display: grid; gap: 6px; border: 1.5px solid var(--verde); border-radius: var(--radio); padding: 12px 14px; background: var(--verde-suave); font-size: 14px; }
+.transferir > b { color: var(--verde); font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
+.transferir .alias { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.transferir .alias span { font-size: 20px; font-weight: 800; word-break: break-all; }
+.transferir .alias button { border: 1.5px solid var(--verde); background: transparent; color: var(--blanco); border-radius: 999px; padding: 6px 14px; font-weight: 700; cursor: pointer; }
+.transferir .ojo { font-weight: 700; }
 .pago-ped b { display: block; margin-bottom: 4px; color: var(--verde); font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
 .campo input, .campo textarea { background: var(--negro); border: 1.5px solid var(--linea); border-radius: 10px; color: var(--texto); padding: 10px 12px; font: inherit; min-height: 44px; width: 100%; }
 .campo textarea { min-height: 72px; resize: vertical; }
@@ -353,7 +361,7 @@ a { color: inherit; }
 
 <script>
 /* La configuración y los productos vienen del servidor (/api/catalogo). */
-let CFG = { tramos: [], lineas: [], minimo: 6, limitarStock: true, mostrarUnidades: true, whatsapp: "", marca: "", filtroVersion: true, mensaje: "", pausa: false, pedirEnvio: true, pago: "" };
+let CFG = { tramos: [], lineas: [], minimo: 6, topeTalle: 0, hitos: [], aliasPago: "", titularPago: "", cuentaPago: "", limitarStock: true, mostrarUnidades: true, whatsapp: "", marca: "", filtroVersion: true, mensaje: "", pausa: false, pedirEnvio: true, pago: "" };
 let CATS = [["todas", "Todas"]];
 const VERS = [["todas", "Todas"], ["jugador", "Versión jugador"], ["fan", "Versión fan"]];
 let NOMBRE_CAT = {};
@@ -408,12 +416,28 @@ function grupos() {
   sumar("", CFG.lineas.length ? "Otros modelos" : "Pedido", CFG.minimo, CFG.tramos);
   return salida;
 }
+/* Pedido parejo (misma cuenta que precios.py): dentro de cada línea, un mismo talle no pasa del tope %
+   de las camisetas de esa línea (con un piso de 2). Los modelos se mezclan libremente: cuenta el talle. */
+const SINONIMOS_TALLE = { "2XL": "XXL", "3XL": "XXXL", "4XL": "XXXXL" };
+const ORDEN_TALLES = ["XS", "S", "M", "L", "XL", "XXL", "XXXL", "XXXXL"];
+const talleBase = (t) => { const b = String(t).split(",")[0].trim().toUpperCase(); return SINONIMOS_TALLE[b] || b; };
+const maximoPorTalle = (n) => Math.max(2, Math.floor((n * CFG.topeTalle) / 100));
+function tallesDe(g) {
+  const c = {};
+  g.ids.forEach((id) => Object.entries(pedido[id] || {}).forEach(([t, n]) => { if (n > 0) { const b = talleBase(t); c[b] = (c[b] || 0) + n; } }));
+  return Object.entries(c).sort((a, b) => ((ORDEN_TALLES.indexOf(a[0]) + 100) % 100) - ((ORDEN_TALLES.indexOf(b[0]) + 100) % 100) || a[0].localeCompare(b[0]));
+}
+function excesos(g) { if (!CFG.topeTalle) return []; const max = maximoPorTalle(g.n); return tallesDe(g).filter(([, n]) => n > max).map(([talle, n]) => ({ talle, n, max })); }
+const desparejo = () => grupos().find((g) => excesos(g).length);
+/* Después del mejor precio, la barra apunta a la próxima meta (50, 100, 200 y de a 100): para pedidos grandes. */
+const proximaMeta = (n) => CFG.hitos.find((h) => h > n) || Math.ceil((n + 1) / 100) * 100;
+
 /* El total estimado: null si alguna parte no tiene precio (lo confirma una persona). */
 function totalPrecio() {
   const gs = grupos(); if (!gs.length || gs.some((g) => g.precio == null)) return null;
   return gs.reduce((a, g) => a + g.precio * g.n, 0);
 }
-const puedeEnviar = () => !CFG.pausa && total() > 0 && envioCompleto() && (CFG.lineas.length ? grupos().every((g) => !g.falta) : total() >= CFG.minimo);
+const puedeEnviar = () => !CFG.pausa && total() > 0 && envioCompleto() && (CFG.lineas.length ? grupos().every((g) => !g.falta) : total() >= CFG.minimo) && !desparejo();
 const detalleTalles = (m) => Object.entries(m).filter(([, n]) => n > 0).map(([t, n]) => `${t} x${n}`).join(", ");
 const nombreVersion = (v) => (v === "jugador" ? "Versión jugador" : "Versión fan");
 const maximoDe = (t) => (CFG.limitarStock ? t.stock : 99);
@@ -480,7 +504,8 @@ function abrirTalles(id, pers) {
   variante = pers && tienePers(p) ? "p" : "l";
   $("tImg").src = `/img/${p.id}/1`; $("tImg").alt = "";
   $("tNombre").textContent = p.nombre; $("tVersion").textContent = etiquetaDe(p); $("tVersion").hidden = !etiquetaDe(p);
-  $("tNota").textContent = CFG.limitarStock ? "Cargá cuántas camisetas de cada talle. Solo se muestran los talles con stock." : "Cargá cuántas camisetas de cada talle.";
+  $("tNota").textContent = (CFG.limitarStock ? "Cargá cuántas camisetas de cada talle. Solo se muestran los talles con stock." : "Cargá cuántas camisetas de cada talle.")
+    + (CFG.topeTalle ? ` El pedido tiene que ser parejo: en cada calidad, un mismo talle puede ser hasta el ${CFG.topeTalle}% (mínimo 2). Los modelos se mezclan como quieras.` : "");
   pintarTalles(); mostrar("hojaTalles");
 }
 const sumaBorrador = (v) => Object.values(borrador[v]).reduce((a, b) => a + b, 0);
@@ -585,21 +610,28 @@ function pintarPedido() {
     : ids.map(tarjetaPed).join("");
   const minimo = CFG.minimo;
   const proximo = CFG.tramos.slice().reverse().find((t) => n < t.desde);
-  const meta = proximo ? proximo.desde : (CFG.tramos[0] ? CFG.tramos[0].desde : minimo);
+  const meta = n < minimo ? minimo : proximo ? proximo.desde : CFG.hitos.length ? proximaMeta(n) : (CFG.tramos[0] ? CFG.tramos[0].desde : minimo);
   const aviso = n < minimo ? `Te faltan <b>${minimo - n}</b> para el pedido mínimo de ${minimo} camisetas.`
     : proximo ? `Sumando <b>${proximo.desde - n}</b> más pagás <b>${peso(proximo.precio)}</b> cada una.`
-    : pu ? `Tenés el mejor precio: <b>${peso(pu)}</b> cada una.` : `El precio te lo confirma una persona del equipo.`;
+    : (pu ? `Tenés el mejor precio: <b>${peso(pu)}</b> cada una.` : `El precio te lo confirma una persona del equipo.`) + (CFG.hitos.length ? ` Llevás <b>${n}</b> · próxima meta <b>${proximaMeta(n)}</b>.` : "");
   /* Con líneas, un aviso por cada una: cuánto falta para su mínimo o para la escala siguiente. */
   const avisoLinea = (g) => g.falta ? `<b>${esc(g.nombre)}</b>: te faltan <b>${g.falta}</b> para el mínimo de ${g.minimo}.`
     : g.proximo ? `<b>${esc(g.nombre)}</b>: sumando <b>${g.proximo.desde - g.n}</b> más pagás <b>${peso(g.proximo.precio)}</b> cada una.`
-    : g.precio != null ? `<b>${esc(g.nombre)}</b>: tenés el mejor precio, <b>${peso(g.precio)}</b> cada una.` : `<b>${esc(g.nombre)}</b>: el precio te lo confirma una persona del equipo.`;
+    : (g.precio != null ? `<b>${esc(g.nombre)}</b>: tenés el mejor precio, <b>${peso(g.precio)}</b> cada una.` : `<b>${esc(g.nombre)}</b>: el precio te lo confirma una persona del equipo.`)
+      + (CFG.hitos.length ? ` Llevás <b>${g.n}</b> · próxima meta <b>${proximaMeta(g.n)}</b>.` : "");
+  /* El reparto por talle de cada línea y, si un talle se pasa, qué hacer. */
+  const tallesLinea = (g) => {
+    if (!CFG.topeTalle) return "";
+    const ex = excesos(g), reparto = tallesDe(g).map(([t, k]) => `${esc(t)} ${k}`).join(" · ");
+    return `<p class="reparto">Talles: ${reparto}</p>` + (ex.length ? `<p class="aviso-talle">Para que el pedido sea parejo, cada talle puede ser hasta <b>${ex[0].max}</b> de ${g.n} (${CFG.topeTalle}%). Tenés <b>${ex.map((e) => `${e.n} ${esc(e.talle)}`).join(" y ")}</b>: sumá otros talles o bajá ${ex.length === 1 ? "ese" : "esos"}.</p>` : "");
+  };
   const medidor = conLineas
     ? `<div class="meter">${gs.map((g) => {
         /* La barra de cada línea llena hasta su mínimo y después hasta la escala siguiente: se ve cuántas camisetas faltan. */
-        const meta = g.falta ? g.minimo : g.proximo ? g.proximo.desde : g.n;
-        return `<div class="med"><div class="barra" role="progressbar" aria-label="${esc(g.nombre)}" aria-valuemin="0" aria-valuemax="${meta}" aria-valuenow="${Math.min(g.n, meta)}"><i style="width:${Math.min(100, (g.n / meta) * 100)}%"></i></div><p>${avisoLinea(g)}</p></div>`;
+        const meta = g.falta ? g.minimo : g.proximo ? g.proximo.desde : CFG.hitos.length ? proximaMeta(g.n) : g.n;
+        return `<div class="med"><div class="barra" role="progressbar" aria-label="${esc(g.nombre)}" aria-valuemin="0" aria-valuemax="${meta}" aria-valuenow="${Math.min(g.n, meta)}"><i style="width:${Math.min(100, (g.n / meta) * 100)}%"></i></div><p>${avisoLinea(g)}</p>${tallesLinea(g)}</div>`;
       }).join("")}</div>`
-    : `<div class="meter"><div class="barra" role="progressbar" aria-valuemin="0" aria-valuemax="${meta}" aria-valuenow="${Math.min(n, meta)}"><i style="width:${Math.min(100, (n / meta) * 100)}%"></i></div><p>${aviso}</p></div>`;
+    : `<div class="meter"><div class="barra" role="progressbar" aria-valuemin="0" aria-valuemax="${meta}" aria-valuenow="${Math.min(n, meta)}"><i style="width:${Math.min(100, (n / meta) * 100)}%"></i></div><p>${aviso}</p>${gs.length ? "" : grupos().map(tallesLinea).join("")}</div>`;
   const f = datosGuardados;
   const tp = conLineas ? totalPrecio() : null;
   /* El detalle de precios por línea va en el cuerpo (que se desplaza); el pie solo lleva el total y el botón. */
@@ -618,6 +650,11 @@ function pintarPedido() {
     <div class="campo"><label for="fEmail">Correo electrónico</label><input id="fEmail" type="email" inputmode="email" autocomplete="email" value="${esc(f.email)}"></div>
     <div class="campo"><label for="fTransp">Enviar por</label><select id="fTransp"><option value="">Elegí una opción</option>${["Vía Cargo", "Correo Argentino"].map((o) => `<option ${f.transporte === o ? "selected" : ""}>${o}</option>`).join("")}</select></div>` : ""}
     <div class="campo"><label for="fNotas">Notas del pedido (opcional)</label><textarea id="fNotas">${esc(f.notas)}</textarea></div>
+    ${CFG.aliasPago ? `<div class="transferir"><b>Datos para transferir</b>
+      <div class="alias"><span>${esc(CFG.aliasPago)}</span><button type="button" id="copiarAlias">Copiar alias</button></div>
+      ${CFG.titularPago ? `<div>A nombre de: <b style="display:inline;color:inherit;text-transform:none;letter-spacing:0;font-size:14px">${esc(CFG.titularPago)}</b></div>` : ""}
+      ${CFG.cuentaPago ? `<div>Cuenta: ${esc(CFG.cuentaPago)}</div>` : ""}
+      <div class="ojo">Mandá el comprobante por WhatsApp después del pedido: sin el comprobante no armamos el pedido.</div></div>` : ""}
     ${CFG.pago ? `<div class="pago-ped"><b>Cómo pagar</b>${esc(CFG.pago)}</div>` : ""}
     ${CONDICIONES ? `<p class="nota">${esc(sinTitulo(CONDICIONES))}</p>` : ""}`;
   const filasTotal = conLineas
@@ -635,7 +672,8 @@ function pintarPedido() {
 function textoEnviar() {
   const conLineas = CFG.lineas.length > 0, n = total();
   const sinMinimo = conLineas ? grupos().find((g) => g.falta) : (n < CFG.minimo ? { falta: CFG.minimo - n, nombre: "" } : null);
-  return CFG.pausa ? "Pedidos pausados por ahora" : sinMinimo ? `Sumá ${sinMinimo.falta} más${conLineas ? ` de ${sinMinimo.nombre}` : ""} para enviar` : !envioCompleto() ? "Completá tus datos de envío para enviar" : "Enviar pedido por WhatsApp";
+  const dp = desparejo();
+  return CFG.pausa ? "Pedidos pausados por ahora" : sinMinimo ? `Sumá ${sinMinimo.falta} más${conLineas ? ` de ${sinMinimo.nombre}` : ""} para enviar` : dp ? `Repartí mejor los talles${conLineas ? ` de ${dp.nombre}` : ""} para enviar` : !envioCompleto() ? "Completá tus datos de envío para enviar" : "Enviar pedido por WhatsApp";
 }
 function actualizarLink() {
   const a = $("enviarWA"); if (!a) return;
@@ -647,7 +685,11 @@ $("hojaPedido").addEventListener("click", (e) => {
   const q = e.target.closest("[data-quitar]"); const ed = e.target.closest("[data-editar]");
   if (q) { delete pedido[q.dataset.quitar]; actualizar(); pintarPedido(); }
   if (ed) { cerrarTodo(); abrirTalles(idDe(ed.dataset.editar), esPers(ed.dataset.editar)); }
-  const wa = e.target.closest("#enviarWA"); if (wa && !puedeEnviar()) e.preventDefault(); else if (wa) registrarPedido();
+  const wa = e.target.closest("#enviarWA"); if (wa && !puedeEnviar()) e.preventDefault(); else if (wa) { registrarPedido(); if (CFG.aliasPago) $("notaCopia").innerHTML = `¡Listo! Ahora transferí al alias <b>${esc(CFG.aliasPago)}</b> y mandá el comprobante por el mismo chat de WhatsApp.`; }
+  if (e.target.closest("#copiarAlias")) {
+    const b = $("copiarAlias");
+    try { navigator.clipboard.writeText(CFG.aliasPago).then(() => { b.textContent = "¡Copiado!"; }, () => { b.textContent = "Copialo a mano"; }); } catch (err) { b.textContent = "Copialo a mano"; }
+  }
   if (e.target.closest("#copiar")) {
     const nota = $("notaCopia"); registrarPedido();
     try { navigator.clipboard.writeText(mensaje()).then(() => { nota.textContent = "Pedido copiado. Pegalo en el WhatsApp."; }, () => { nota.textContent = "No se pudo copiar. Usá el botón de WhatsApp."; }); }
@@ -740,7 +782,7 @@ async function cargar() {
     const r = await fetch("/api/catalogo", { cache: "no-store" });
     if (!r.ok) throw new Error(r.status);
     const d = await r.json();
-    CFG = { tramos: d.tramos, lineas: d.lineas || [], minimo: d.minimo, limitarStock: d.limitarStock, mostrarUnidades: d.mostrarUnidades !== false, whatsapp: d.whatsapp, marca: d.marca || "", filtroVersion: d.filtroVersion !== false, mensaje: d.mensaje || "{pedido}", pausa: !!d.pausa, pedirEnvio: d.pedirEnvio !== false, pago: d.pago || "" };
+    CFG = { tramos: d.tramos, lineas: d.lineas || [], minimo: d.minimo, topeTalle: d.topeTalle || 0, hitos: d.hitos || [], aliasPago: d.aliasPago || "", titularPago: d.titularPago || "", cuentaPago: d.cuentaPago || "", limitarStock: d.limitarStock, mostrarUnidades: d.mostrarUnidades !== false, whatsapp: d.whatsapp, marca: d.marca || "", filtroVersion: d.filtroVersion !== false, mensaje: d.mensaje || "{pedido}", pausa: !!d.pausa, pedirEnvio: d.pedirEnvio !== false, pago: d.pago || "" };
     aplicarNegocio(d);
     PRODUCTOS = d.productos; porId = new Map(PRODUCTOS.map((p) => [p.id, p]));
     $("waDirecto").href = `https://wa.me/${CFG.whatsapp}`;

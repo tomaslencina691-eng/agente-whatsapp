@@ -43,6 +43,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+import acceso
 import admin
 import agente_cliente
 import ajustes
@@ -401,15 +402,35 @@ async def _vida(_app: FastAPI):
         vigilante_de_pagos.cancel()
 
 
-app = FastAPI(title="Mayorista", docs_url=None, redoc_url=None, lifespan=_vida)
+# Sin /docs, /redoc ni /openapi.json: le mostrarían a cualquiera todas las rutas del panel.
+app = FastAPI(title="Mayorista", docs_url=None, redoc_url=None, openapi_url=None, lifespan=_vida)
 _panel = admin.crear_router(_historial, _invalidar_cache, _almacen, CATEGORIAS, _ajustes_de_siempre, _agente, _avisador)
 app.include_router(_panel)
 
 
+# Qué puede cargar la página. Los scripts y estilos van en el mismo HTML (por eso
+# 'unsafe-inline'), pero nada de afuera salvo las fuentes de Google; las fotos y los
+# pedidos, solo del propio servidor (las data: son las fotos que se eligen en el panel
+# antes de subirlas). Si un texto se colara como HTML, no podría traer un script
+# ajeno ni mandar datos a otro sitio.
+POLITICA_DE_CONTENIDO = "; ".join((
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    "img-src 'self' data: blob:",
+    "connect-src 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+))
+
+
 @app.middleware("http")
 async def _cabeceras_del_panel(request: Request, llamar):
-    """El panel no se guarda en cachés, no se mete en un marco y no se indexa.
+    """Las cabeceras de seguridad de todo el sitio, y las propias del panel.
 
+    El panel además no se guarda en cachés, no se mete en un marco y no se indexa.
     Y quien entra por www. pasa al dominio sin www, para que haya una sola dirección.
     """
     host = request.headers.get("host", "").split(":")[0].lower()
@@ -419,6 +440,13 @@ async def _cabeceras_del_panel(request: Request, llamar):
             destino += f"?{request.url.query}"
         return RedirectResponse(destino, status_code=301)
     respuesta = await llamar(request)
+    respuesta.headers["X-Content-Type-Options"] = "nosniff"
+    respuesta.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    respuesta.headers["Content-Security-Policy"] = POLITICA_DE_CONTENIDO + "; frame-ancestors " + ("'none'" if request.url.path.startswith("/admin") else "'self'")
+    # HSTS solo si llegó por https (detrás del proxy): por http el navegador lo ignora igual.
+    # Sin includeSubDomains: los otros subdominios (Chatwoot, el agente) los maneja cada uno.
+    if request.headers.get("x-forwarded-proto", request.url.scheme) == "https":
+        respuesta.headers["Strict-Transport-Security"] = "max-age=31536000"
     if request.url.path.startswith("/admin"):
         respuesta.headers["Cache-Control"] = "no-store"
         respuesta.headers["X-Frame-Options"] = "DENY"
@@ -448,11 +476,16 @@ def api_catalogo(response: Response) -> dict:
         "minimo": w["minimo"],
         # Las líneas llevan el mínimo de cada una; con los precios ocultos van sin escalas.
         "lineas": [{**l, "tramos": [] if w["ocultarPrecios"] else sorted(l["tramos"], key=lambda t: t["desde"], reverse=True)} for l in w["lineas"]],
+        "topeTalle": w["topeTalle"],
+        "hitos": sorted(w["hitos"]),
         "limitarStock": w["limitarStock"],
         "mostrarUnidades": w["mostrarUnidades"],
         "whatsapp": w["whatsapp"],
         "pedirEnvio": w["pedirEnvio"],
         "pago": w["pago"],
+        "aliasPago": w["aliasPago"],
+        "titularPago": w["titularPago"],
+        "cuentaPago": w["cuentaPago"],
         "marca": w["marca"],
         "tiendaUrl": w["tiendaUrl"] if w["tiendaUrl"].lower().startswith(("http://", "https://")) else "",
         "categorias": [{"id": c["id"], "nombre": c["nombre"]} for c in categorias_vigentes()],
@@ -519,7 +552,7 @@ class PedidoNuevo(BaseModel):
 
 
 def _ip_de(request: Request) -> str:
-    return (request.headers.get("x-forwarded-for") or (request.client.host if request.client else "")).split(",")[0].strip()
+    return acceso.ip_del_pedido(request.headers.get("x-forwarded-for"), request.client.host if request.client else "")
 
 
 def _demasiados_pedidos(ip: str) -> bool:
@@ -561,9 +594,18 @@ def api_pedido(datos: PedidoNuevo, request: Request) -> dict:
     ]
     unidades = sum(i["cantidad"] for i in items)
     total = _total_estimado(items, unidades)
+    # La web no deja enviar un pedido desparejo; si igual llega uno (una web vieja, alguien que lo arma a mano),
+    # se guarda y el panel lo marca: la persona que lo confirma decide.
+    w = web_vigente()
+    cats = {p["id"]: categorias_de(p) for p in _cache["productos"] or []}
+    desparejos = precios.talles_desparejos(
+        [(cats.get(i["producto"], []), i["talle"], i["cantidad"], bool(i.get("pers"))) for i in items], w["lineas"], w["topeTalle"],
+        "Otros modelos" if w["lineas"] else "Pedido",
+    )
     guardado = _almacen.crear_pedido(
         datos.codigo,
         {"items": items, "nombre": datos.nombre.strip(), "negocio": datos.negocio.strip(), "notas": datos.notas.strip(),
+         **({"tallesDesparejos": desparejos} if desparejos else {}),
          **({"envio": {k: v.strip() for k, v in datos.envio.model_dump().items() if v.strip()}} if any(v.strip() for v in datos.envio.model_dump().values()) else {})},
         unidades,
         total,

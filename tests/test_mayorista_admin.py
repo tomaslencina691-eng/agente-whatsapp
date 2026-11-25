@@ -1473,3 +1473,11 @@ def test_un_aviso_que_falla_no_rompe_el_guardado(sesion, alm, agente, monkeypatc
     r = sesion.post("/admin/api/stock/aplicar", json={"cambios": [cambio(alm, 1, "M", 0), cambio(alm, 1, "L", 0)]}, headers=H)
 
     assert r.status_code == 200 and fila(alm, 1, "M")["cantidad"] == 0
+
+
+def test_la_ip_es_la_que_agrega_el_proxy():
+    """La primera del X-Forwarded-For la escribe el navegador: con eso se esquivaba el bloqueo."""
+    assert acceso.ip_del_pedido("6.6.6.6, 1.2.3.4", "10.0.0.2") == "1.2.3.4"
+    assert acceso.ip_del_pedido("1.2.3.4", "10.0.0.2") == "1.2.3.4"
+    assert acceso.ip_del_pedido(None, "10.0.0.2") == "10.0.0.2"
+    assert acceso.ip_del_pedido(" , ", "10.0.0.2") == "10.0.0.2"

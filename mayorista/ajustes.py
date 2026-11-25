@@ -92,10 +92,18 @@ class AjustesWeb(BaseModel):
     pedirEnvio: bool = True
     # Cómo se paga (alias, cuándo se descuenta el stock, que hay que mandar el comprobante): se muestra en el carrito.
     pago: str = Field(default="", max_length=600)
+    # Los datos para transferir: se muestran en el carrito, con un botón para copiar el alias.
+    aliasPago: str = Field(default="", max_length=60)
+    titularPago: str = Field(default="", max_length=80)
+    cuentaPago: str = Field(default="", max_length=60)
     mensaje: str = Field(min_length=1, max_length=1500)
     minimo: int = Field(ge=1, le=9999)
     tramos: list[Tramo] = Field(default=[], max_length=10)
     lineas: list[Linea] = Field(default=[], max_length=8)
+    # Pedido parejo: un mismo talle no puede ser más que este % de su línea (0 = sin tope). Ver precios.py.
+    topeTalle: int = Field(default=0, ge=0, le=100)
+    # Las metas de la barra de cada línea después de su mejor precio (pedidos grandes: 50, 100, 200).
+    hitos: list[int] = Field(default=[], max_length=8)
     pausa: bool = False
     aviso: str = Field(default="", max_length=160)
     limitarStock: bool = True
@@ -139,6 +147,10 @@ def problemas(a: AjustesWeb) -> list[str]:
             malos.append(f"La línea «{l.nombre}» no puede ser variante de otra variante.")
         if l.personalizadaDe and l.cats:
             malos.append(f"La línea «{l.nombre}» es una variante: no lleva categorías propias.")
+    if a.topeTalle and a.topeTalle < 20:
+        malos.append("El tope por talle no puede ser menor que 20 %: con 5 talles, ni un pedido repartido parejo entraría.")
+    if any(h < 1 or h > 100_000 for h in a.hitos) or len(set(a.hitos)) != len(a.hitos):
+        malos.append("Las metas de la barra tienen que ser cantidades distintas, de 1 a 100.000.")
     repetidas = sorted({c for i, l in enumerate(a.lineas) for c in l.cats if any(c in o.cats for o in a.lineas[:i])})
     if repetidas:
         malos.append("Una categoría no puede estar en dos líneas de precios: " + ", ".join(repetidas) + ".")
@@ -163,6 +175,9 @@ def por_defecto(negocio: dict, marca: str, whatsapp: str, tienda_url: str, limit
         "whatsappAlterno": re.sub(r"\D", "", str(negocio.get("whatsappAlterno") or "")),
         "pedirEnvio": negocio.get("pedirEnvio", True) is not False,
         "pago": negocio.get("pago") or PAGO_POR_DEFECTO,
+        "aliasPago": str(negocio.get("aliasPago") or ""),
+        "titularPago": str(negocio.get("titularPago") or ""),
+        "cuentaPago": str(negocio.get("cuentaPago") or ""),
         "mensaje": MENSAJE_POR_DEFECTO,
         "minimo": minimo,
         "tramos": sorted(({"desde": t["desde"], "precio": t["precio"]} for t in tramos), key=lambda t: t["desde"]),
@@ -177,6 +192,8 @@ def por_defecto(negocio: dict, marca: str, whatsapp: str, tienda_url: str, limit
             }
             for l in negocio.get("lineas") or []
         ],
+        "topeTalle": int(negocio.get("topeTalle") or 0),
+        "hitos": sorted({int(h) for h in negocio.get("hitos") or [] if int(h) > 0}),
         "pausa": False,
         "aviso": "",
         "limitarStock": limitar_stock,

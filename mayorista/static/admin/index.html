@@ -420,6 +420,13 @@ details.np-mas .cuerpo { display: grid; gap: 12px; padding-top: 12px; }
           <div style="display:flex;gap:8px;flex-wrap:wrap"><input id="wWhatsappAlterno" data-w="whatsappAlterno" inputmode="numeric" autocomplete="off" style="flex:1 1 220px"><button class="btn chico" id="wIntercambiar" type="button">Intercambiar con el activo</button></div>
           <span class="ayuda" id="wAlternoAyuda">Guardá acá el segundo número y tocá «Intercambiar» cuando quieras que los pedidos lleguen a ese. Después apretá «Guardar y publicar».</span></div>
         <label class="opcion"><input type="checkbox" id="wPedirEnvio" data-w="pedirEnvio"><span><b>Pedir los datos de envío en la web</b><small>DNI, provincia, ciudad, código postal, dirección, correo y Vía Cargo o Correo Argentino. Sin completarlos no se puede enviar el pedido.</small></span></label>
+        <div class="campo"><label>Datos para transferir (se muestran en el carrito, con un botón para copiar el alias)</label>
+          <div class="dos">
+            <div class="campo"><label for="wAliasPago">Alias</label><input id="wAliasPago" data-w="aliasPago" maxlength="60" autocomplete="off" placeholder="Tomi.lencin"></div>
+            <div class="campo"><label for="wTitularPago">A nombre de</label><input id="wTitularPago" data-w="titularPago" maxlength="80" autocomplete="off"></div>
+            <div class="campo"><label for="wCuentaPago">Cuenta</label><input id="wCuentaPago" data-w="cuentaPago" maxlength="60" autocomplete="off" placeholder="Lemon, Mercado Pago, banco..."></div>
+          </div>
+          <span class="ayuda">Sin alias no se muestra el recuadro. El agente de WhatsApp pasa el alias que dice su prompt: si lo cambiás acá, cambialo también en la pestaña Agente.</span></div>
         <div class="campo"><label for="wPago">Cómo pagar (se muestra en el carrito)</label><textarea id="wPago" data-w="pago" rows="3" maxlength="600" placeholder="Ej: Transferí al alias SIMPLEMENTE.FUTBOL a nombre de ... y mandá el comprobante por WhatsApp a continuación."></textarea><span class="ayuda">Poné el alias y explicá que el stock se descuenta recién cuando se verifica el pago y que hay que mandar el comprobante después del pedido.</span></div>
         <div class="campo"><label for="wMensaje">Mensaje del pedido</label><textarea id="wMensaje" data-w="mensaje" rows="9" maxlength="1500" style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px"></textarea>
           <span class="ayuda">Tocá un dato para sumarlo. Si una persona no completa un dato, esa línea no se manda. {pedido} es obligatorio.</span>
@@ -432,6 +439,12 @@ details.np-mas .cuerpo { display: grid; gap: 12px; padding-top: 12px; }
           <span class="ayuda">El precio por camiseta según cuántas lleva el pedido. Sin escalas, la web dice que el precio lo confirma el equipo.</span></div>
         <div class="campo"><label>Precios por línea de producto</label><div id="wLineas" style="display:grid;gap:12px"></div><div><button class="btn chico" id="wLineaMas" type="button">+ Agregar línea</button></div>
           <span class="ayuda">Cada línea (por ejemplo G5, Top Quality, Shorts) tiene su propio mínimo y su propia escala. Las unidades se cuentan dentro de cada línea: no se mezclan calidades, sí modelos. Lo que no entra en ninguna línea usa el mínimo y las escalas de arriba. Sin líneas rige la escala única.</span></div>
+        <div class="dos">
+          <div class="campo"><label for="wTopeTalle">Tope por talle (%)</label><input id="wTopeTalle" data-w="topeTalle" type="number" min="0" max="100" inputmode="numeric">
+            <span class="ayuda">Pedido parejo: en cada línea, un mismo talle puede ser hasta este porcentaje de las camisetas (mínimo 2 por talle). Con 40 %: 6 camisetas → hasta 2 por talle; 12 → hasta 4; 100 → hasta 40. 0 = sin tope.</span></div>
+          <div class="campo"><label for="wHitos">Metas de la barra para pedidos grandes</label><input id="wHitos" inputmode="numeric" autocomplete="off" placeholder="50, 100, 200">
+            <span class="ayuda">Después del mejor precio, la barra de cada línea sigue hasta estas cantidades (y después de a 100). Vacío = la barra queda llena.</span></div>
+        </div>
         <label class="opcion"><input type="checkbox" id="wOcultarPrecios" data-w="ocultarPrecios"><span><b>Ocultar los precios</b><small>La web no muestra las escalas ni el total: pide que el equipo los confirme.</small></span></label>
         <label class="opcion"><input type="checkbox" id="wPausa" data-w="pausa"><span><b>Pausar los pedidos</b><small>El catálogo se sigue viendo, pero no se puede enviar el pedido.</small></span></label>
         <div class="campo"><label for="wAviso">Aviso arriba de la web</label><input id="wAviso" data-w="aviso" maxlength="160" placeholder="Ej: Cerrado por balance hasta el lunes 24"><span class="ayuda">Si lo dejás vacío, no se muestra.</span></div>
@@ -1124,7 +1137,7 @@ function tarjetaPedido(p) {
     + (p.estado === "confirmado" ? `<button class="btn fuerte chico" data-despachar="${esc(p.codigo)}">Marcar como despachado</button><button class="btn chico" data-cancelar="${esc(p.codigo)}">Cancelar y devolver el stock</button>` : "");
   const cd = p.pagoDetectado, detectado = cd ? `<div class="pago-detectado"><div><b>💰 Pago detectado en Mercado Pago: ${esc(dinero(cd.monto))}</b> · ${esc(cuando(cd.fecha))}${cd.pagador && (cd.pagador.nombre || cd.pagador.dni) ? " · " + esc(cd.pagador.nombre || cd.pagador.dni) : ""}</div><div>El monto coincide con el total de este pedido.</div><div class="acciones" style="justify-content:flex-start"><button class="btn fuerte chico" data-asignar="${esc(cd.id)}|${esc(p.codigo)}" ${p.falta ? "disabled title=\"No alcanza el stock\"" : ""}>Confirmar con este pago</button></div></div>` : "";
   return `<article class="lote"><header><b>${esc(p.codigo)}</b><span class="etq ${clase}">${et}</span><span>${esc(f)}</span><span>${p.unidades} ${p.unidades === 1 ? "camiseta" : "camisetas"}${p.total ? " · ~" + dinero(p.total) : ""}</span><span class="espacio"></span>${botones}</header>
-    <div class="detalle">${detectado}${quien ? `<div><b>${quien}</b></div>` : ""}${despacho.length ? `<div class="despacho"><b>Despacho:</b> ${despacho.join(" · ")}</div>` : '<div class="falta-stock">Sin datos de envío: pedíselos al cliente por WhatsApp.</div>'}${lineas}${p.notas ? `<div>Notas: ${esc(p.notas)}</div>` : ""}${p.falta ? '<div class="falta-stock">No alcanza el stock para confirmar. Hablalo con el cliente o cargá el stock en la planilla.</div>' : ""}</div></article>`;
+    <div class="detalle">${detectado}${quien ? `<div><b>${quien}</b></div>` : ""}${despacho.length ? `<div class="despacho"><b>Despacho:</b> ${despacho.join(" · ")}</div>` : '<div class="falta-stock">Sin datos de envío: pedíselos al cliente por WhatsApp.</div>'}${lineas}${p.notas ? `<div>Notas: ${esc(p.notas)}</div>` : ""}${p.falta ? '<div class="falta-stock">No alcanza el stock para confirmar. Hablalo con el cliente o cargá el stock en la planilla.</div>' : ""}${(p.desparejo || []).length ? `<div class="falta-stock">Talles desparejos: ${p.desparejo.map((d) => `${esc(d.linea)}: ${d.cantidad} ${esc(d.talle)} de ${d.total} (máximo ${d.maximo})`).join(" · ")}. Revisalo con el cliente antes de confirmar.</div>` : ""}</div></article>`;
 }
 $("estadoPedidos").addEventListener("change", () => cargarPedidos());
 $("listaPedidos").addEventListener("click", async (e) => {
@@ -1275,8 +1288,14 @@ function pintarFormWeb() {
   document.querySelectorAll("#pestanaWeb [data-w]").forEach((el) => { const v = W[el.dataset.w]; if (el.type === "checkbox") el.checked = !!v; else el.value = v == null ? "" : v; });
   $("wColores").innerHTML = COLORES.map(([c, n]) => `<button type="button" style="background:${c}" data-color="${c}" aria-label="${n}" title="${n}" aria-pressed="${W.color.toLowerCase() === c}"></button>`).join("") + `<input type="color" id="wColorLibre" value="${esc(W.color)}" aria-label="Otro color">`;
   $("wDatos").innerHTML = DATOS_MENSAJE.map((d) => `<button type="button" data-dato="${d}">{${d}}</button>`).join("");
+  $("wHitos").value = (W.hitos || []).join(", ");
   pintarTramosWeb(); pintarLineasWeb(); pintarReglasWeb(); pintarLogoWeb(); refrescarWeb();
 }
+$("wHitos").addEventListener("input", (e) => {
+  if (!W) return;
+  W.hitos = [...new Set(e.target.value.split(/[^\d]+/).filter(Boolean).map((x) => parseInt(x, 10)).filter((x) => x > 0))].sort((a, b) => a - b).slice(0, 8);
+  refrescarWeb();
+});
 function pintarLogoWeb() { $("wLogoVista").src = "/logo.webp" + (W.logoHash ? "?v=" + W.logoHash : ""); }
 function refrescarWeb() {
   const wsp = String(W.whatsapp || ""), ok = /^\d{10,15}$/.test(wsp);

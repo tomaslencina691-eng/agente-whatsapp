@@ -904,3 +904,21 @@ def test_se_puede_dejar_de_pedir_el_envio_y_cambiar_el_texto_de_pago(cliente, mo
     d = cliente.get("/api/catalogo").json()
 
     assert (d["pedirEnvio"], d["pago"]) == (False, "Alias SF.MAYORISTA")
+
+
+def test_no_hay_documentacion_publica_de_las_rutas(cliente):
+    """/openapi.json listaba todas las rutas del panel."""
+    for ruta in ("/docs", "/redoc", "/openapi.json"):
+        assert cliente.get(ruta).status_code == 404
+
+
+def test_cabeceras_de_seguridad(cliente):
+    web = cliente.get("/salud", headers={"x-forwarded-proto": "https"})
+    assert web.headers["x-content-type-options"] == "nosniff"
+    assert "frame-ancestors 'self'" in web.headers["content-security-policy"]
+    assert web.headers["strict-transport-security"].startswith("max-age=")
+    panel = cliente.get("/admin/api/estado")
+    assert "frame-ancestors 'none'" in panel.headers["content-security-policy"]
+    assert panel.headers["x-frame-options"] == "DENY"
+    # por http no se manda HSTS
+    assert "strict-transport-security" not in cliente.get("/salud").headers
