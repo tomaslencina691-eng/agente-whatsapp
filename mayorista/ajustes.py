@@ -100,6 +100,11 @@ class AjustesWeb(BaseModel):
     minimo: int = Field(ge=1, le=9999)
     tramos: list[Tramo] = Field(default=[], max_length=10)
     lineas: list[Linea] = Field(default=[], max_length=8)
+    # La categoría de Tiendanube de los modelos que ya traen dorsal: todos sus talles se cobran «con parche y número».
+    categoriaDorsal: str = Field(default="", max_length=60)
+    # Categoría de Tiendanube → línea de precios, para los modelos que con los filtros no entran en ninguna
+    # (por ejemplo {"ORIGINAL": "top", "CON DORSAL": "top"}).
+    sinonimosCalidad: dict[str, str] = Field(default_factory=dict, max_length=20)
     # Pedido parejo: un mismo talle no puede ser más que este % de su línea (0 = sin tope). Ver precios.py.
     topeTalle: int = Field(default=0, ge=0, le=100)
     # Las metas de la barra de cada línea después de su mejor precio (pedidos grandes: 50, 100, 200).
@@ -150,6 +155,10 @@ def problemas(a: AjustesWeb) -> list[str]:
             malos.append(f"La línea «{l.nombre}» no puede ser variante de otra variante.")
         if l.personalizadaDe and l.cats:
             malos.append(f"La línea «{l.nombre}» es una variante: no lleva categorías propias.")
+    base_ids = {l.id for l in a.lineas if not l.personalizadaDe}
+    malas = sorted(n for n, l in a.sinonimosCalidad.items() if l not in base_ids)
+    if malas:
+        malos.append("Estas categorías de Tiendanube apuntan a una línea de precios que no existe: " + ", ".join(malas) + ".")
     if a.topeTalle and a.topeTalle < 20:
         malos.append("El tope por talle no puede ser menor que 20 %: con 5 talles, ni un pedido repartido parejo entraría.")
     if any(h < 1 or h > 100_000 for h in a.hitos) or len(set(a.hitos)) != len(a.hitos):
@@ -195,6 +204,8 @@ def por_defecto(negocio: dict, marca: str, whatsapp: str, tienda_url: str, limit
             }
             for l in negocio.get("lineas") or []
         ],
+        "categoriaDorsal": str(negocio.get("categoriaDorsal") or ""),
+        "sinonimosCalidad": {str(k): str(v) for k, v in (negocio.get("sinonimosCalidad") or {}).items()},
         "topeTalle": int(negocio.get("topeTalle") or 0),
         "hitos": sorted({int(h) for h in negocio.get("hitos") or [] if int(h) > 0}),
         "pausa": False,

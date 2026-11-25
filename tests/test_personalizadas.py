@@ -82,3 +82,48 @@ def test_en_un_short_solo_los_talles_con_numero_van_con_numero(cliente, tienda_c
     p = tienda_con_dorsales.pedido("A-7K3QX")
     assert [bool(i.get("pers")) for i in p["datos"]["items"]] == [True, False]
     assert p["total"] == 6 * 38000 + 6 * 35000
+
+
+# -- La categoría «CON DORSAL» y la calidad «ORIGINAL» de Tiendanube ----------------------
+
+
+@pytest.fixture
+def tienda_por_categoria(monkeypatch, propio):
+    """Como quedó la tienda: 1 solo en «CON DORSAL», 2 solo en «ORIGINAL» (lisa), 3 en G5."""
+    filtros = {1: [], 2: [], 3: ["g5"]}  # «CON DORSAL» y «ORIGINAL» no son de ninguna línea por los filtros
+    monkeypatch.setattr(servidor, "categorias_de", lambda p: filtros[p["id"]])
+    monkeypatch.setattr(servidor, "_traer_productos", lambda: [
+        producto(id=1, nombre="Real Madrid Retro 17/18 – Cristiano Ronaldo 7", categorias=("CON DORSAL",), talles=(("M", 20), ("L", 20))),
+        producto(id=2, nombre="Marsella suplente versión jugador", categorias=("ORIGINAL",), talles=(("M", 20), ("L", 20), ("XL", 20))),
+        producto(id=3, nombre="Boca Titular", categorias=("G5",), talles=(("M", 20), ("L", 20))),
+    ])
+    propio.cargar([(1, "M", 20), (1, "L", 20), (2, "M", 20), (2, "L", 20), (2, "XL", 20), (3, "M", 20), (3, "L", 20)])
+    guardar_web(propio, lineas=[LINEA_TOP, LINEA_TOP_PERS, LINEA_G5], tramos=[], categoriaDorsal="CON DORSAL",
+                sinonimosCalidad={"ORIGINAL": "top", "CON DORSAL": "top"})
+    return propio
+
+
+def test_con_dorsal_y_original_entran_en_top_quality(cliente, tienda_por_categoria):
+    productos = {p["id"]: p for p in cliente.get("/api/catalogo").json()["productos"]}
+
+    assert productos[1]["linea"] == "top" and all(t.get("pers") for t in productos[1]["talles"]), "con dorsal: todos sus talles"
+    assert productos[2]["linea"] == "top" and not productos[2]["personalizada"], "original sin dorsal: lisa"
+    assert productos[3]["linea"] == "g5"
+
+
+def test_un_pedido_con_dorsal_se_cobra_como_con_parche(cliente, tienda_por_categoria):
+    cliente.get("/api/catalogo")
+    items = [{"producto": 1, "talle": "M", "cantidad": 3}, {"producto": 1, "talle": "L", "cantidad": 3},
+             {"producto": 2, "talle": "M", "cantidad": 2}, {"producto": 2, "talle": "L", "cantidad": 2}, {"producto": 2, "talle": "XL", "cantidad": 2}]
+
+    cliente.post("/api/pedido", json=pedido_web(items=items))
+
+    assert tienda_por_categoria.pedido("A-7K3QX")["total"] == 6 * 45000 + 6 * 35000
+
+
+def test_una_calidad_que_apunta_a_una_linea_inexistente_no_se_guarda():
+    import ajustes
+
+    a = ajustes.AjustesWeb(**{**ajustes.por_defecto({}, "Tienda", "5491100000000", "", True, 6, []), "sinonimosCalidad": {"ORIGINAL": "nada"}})
+
+    assert any("no existe" in m for m in ajustes.problemas(a))

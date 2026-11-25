@@ -155,6 +155,35 @@ def categorias_de(producto: dict) -> list[str]:
     return admin.categorias_del_producto(producto, categorias_vigentes())
 
 
+def _de_tiendanube(producto: dict) -> set[str]:
+    return {((c.get("name") or {}).get("es") or "").strip().upper() for c in producto.get("categories") or []}
+
+
+def con_dorsal(producto: dict) -> bool:
+    """Si el modelo está en la categoría de Tiendanube de los que ya traen dorsal (todos sus talles)."""
+    cat = (web_vigente()["categoriaDorsal"] or "").strip().upper()
+    return bool(cat) and cat in _de_tiendanube(producto)
+
+
+def cats_para_precio(producto: dict) -> list[str]:
+    """Las categorías con que se busca su línea de precios.
+
+    Las de los filtros y, si con esas no entra en ninguna línea, la calidad que dice su categoría
+    de Tiendanube (sinonimosCalidad: «ORIGINAL» o «CON DORSAL» son Top Quality).
+    """
+    cats = categorias_de(producto)
+    w = web_vigente()
+    if precios.linea_de(cats, w["lineas"]):
+        return cats
+    de_la_tienda = _de_tiendanube(producto)
+    for nombre_tn, linea_id in (w["sinonimosCalidad"] or {}).items():
+        if nombre_tn.strip().upper() in de_la_tienda:
+            linea = next((l for l in w["lineas"] if l["id"] == linea_id and l.get("cats")), None)
+            if linea:
+                return cats + [linea["cats"][0]]
+    return cats
+
+
 _web_cache: dict = {"t": 0.0, "valor": None}
 
 
@@ -250,8 +279,9 @@ def armar_catalogo(productos: list[dict], stock: dict[int, dict[str, int]] | Non
             continue
         talles.sort(key=lambda t: _clave_de_talle(t["talle"]))
         nombre_tn = (p.get("name") or {}).get("es") or ""
+        dorsal = con_dorsal(p)
         for t in talles:
-            if precios.talle_personalizado(nombre_tn, t["talle"]):
+            if dorsal or precios.talle_personalizado(nombre_tn, t["talle"]):
                 t["pers"] = True
 
         fotos = _fotos_de(p)
@@ -304,8 +334,9 @@ def _catalogo_actual() -> list[dict]:
     stock = stock_por_modelo(_almacen.filas()) if _almacen is not None else None
     catalogo = armar_catalogo(_cache["productos"], stock)[0]
     lineas = web_vigente()["lineas"]
+    de_la_tienda = {p["id"]: p for p in _cache["productos"] or []}
     for p in catalogo:
-        linea = precios.linea_de(p["cats"], lineas)
+        linea = precios.linea_de(cats_para_precio(de_la_tienda[p["id"]]) if p["id"] in de_la_tienda else p["cats"], lineas)
         p["linea"] = linea["id"] if linea else None
     orden = web_vigente()["orden"]
     if orden == "stock":
@@ -586,7 +617,7 @@ def _total_estimado(items: list[dict], unidades: int) -> int | None:
     if not lineas:
         precio = precio_unidad(unidades)
         return precio * unidades if precio else None
-    cats = {p["id"]: categorias_de(p) for p in _cache["productos"] or []}
+    cats = {p["id"]: cats_para_precio(p) for p in _cache["productos"] or []}
     return precios.total_del_pedido([(cats.get(i["producto"], []), i["cantidad"], bool(i.get("pers"))) for i in items], lineas, precio_unidad)
 
 
@@ -605,9 +636,10 @@ def api_pedido(datos: PedidoNuevo, request: Request) -> dict:
     nombres = {p["id"]: nombre_limpio((p.get("name") or {}).get("es") or "") for p in _cache["productos"] or []}
     # Un talle que ya viene con dorsal o parche se cobra así aunque la web no lo haya marcado.
     de_la_tienda = _nombres_de_la_tienda()
+    dorsales = {p["id"] for p in _cache["productos"] or [] if con_dorsal(p)}
     items = [
         {"producto": i.producto, "talle": almacen.limpiar_talle(i.talle), "cantidad": i.cantidad, "nombre": nombres.get(i.producto) or f"Modelo {i.producto}",
-         **({"pers": True} if i.pers or precios.talle_personalizado(de_la_tienda.get(i.producto, ""), i.talle) else {})}
+         **({"pers": True} if i.pers or i.producto in dorsales or precios.talle_personalizado(de_la_tienda.get(i.producto, ""), i.talle) else {})}
         for i in datos.items
     ]
     unidades = sum(i["cantidad"] for i in items)
@@ -615,7 +647,7 @@ def api_pedido(datos: PedidoNuevo, request: Request) -> dict:
     # La web no deja enviar un pedido desparejo; si igual llega uno (una web vieja, alguien que lo arma a mano),
     # se guarda y el panel lo marca: la persona que lo confirma decide.
     w = web_vigente()
-    cats = {p["id"]: categorias_de(p) for p in _cache["productos"] or []}
+    cats = {p["id"]: cats_para_precio(p) for p in _cache["productos"] or []}
     desparejos = precios.talles_desparejos(
         [(cats.get(i["producto"], []), i["talle"], i["cantidad"], bool(i.get("pers"))) for i in items], w["lineas"], w["topeTalle"],
         "Otros modelos" if w["lineas"] else "Pedido",

@@ -350,7 +350,7 @@ def filas_iniciales(productos: list[dict]) -> list[tuple[int, str, int]]:
 
 ETIQUETAS_DE_AJUSTES = {
     "marca": "nombre", "bandaIzq": "banda", "bandaDer": "banda", "titulo": "título", "bajada": "texto de portada", "color": "color",
-    "whatsapp": "WhatsApp", "whatsappAlterno": "WhatsApp alternativo", "pedirEnvio": "datos de envío", "pago": "cómo pagar", "aliasPago": "alias", "titularPago": "titular de la cuenta", "cuentaPago": "cuenta", "mensaje": "mensaje del pedido", "minimo": "pedido mínimo", "tramos": "precios", "lineas": "precios por línea", "topeTalle": "tope por talle", "hitos": "metas de la barra", "pausa": "pausa de pedidos", "mantenimiento": "página en construcción", "mensajeMantenimiento": "cartel de construcción",
+    "whatsapp": "WhatsApp", "whatsappAlterno": "WhatsApp alternativo", "pedirEnvio": "datos de envío", "pago": "cómo pagar", "aliasPago": "alias", "titularPago": "titular de la cuenta", "cuentaPago": "cuenta", "mensaje": "mensaje del pedido", "minimo": "pedido mínimo", "tramos": "precios", "lineas": "precios por línea", "topeTalle": "tope por talle", "categoriaDorsal": "categoría con dorsal", "sinonimosCalidad": "calidades de Tiendanube", "hitos": "metas de la barra", "pausa": "pausa de pedidos", "mantenimiento": "página en construcción", "mensajeMantenimiento": "cartel de construcción",
     "aviso": "aviso", "limitarStock": "límite de stock", "filtroVersion": "filtro de versión", "mostrarUnidades": "unidades que quedan",
     "ocultarPrecios": "precios ocultos", "orden": "orden", "reglas": "reglas", "condiciones": "condiciones", "cierre": "cierre", "pie": "pie",
     "horario": "horario", "instagram": "Instagram", "tiendaUrl": "enlace a la tienda", "seoTitulo": "título en Google", "seoDescripcion": "descripción en Google",
@@ -984,15 +984,18 @@ def crear_router(
     @router.get("/web/revision-precios")
     def web_revision_precios(usuario: str = Depends(usuario_actual)) -> dict:
         """Qué modelos se cobran como «con parche y número» solos, y cuáles están en dos calidades a la vez."""
-        lineas = _web_actual()["lineas"]
+        web = _web_actual()
+        lineas = web["lineas"]
         categorias = _categorias_actuales()
+        cat_dorsal = (web.get("categoriaDorsal") or "").strip().upper()
         incluidos = almacen_.incluidos()
         personalizados, dobles = [], []
         for p in _productos_de_la_tienda(guardados=True):
             if p["id"] not in incluidos or not p.get("published"):
                 continue
             modelo = {"id": p["id"], "nombre": _nombre_de(p, p["id"])}
-            if precios.ya_personalizado(modelo["nombre"], [talle_de(v) for v in p.get("variants") or []]):
+            de_la_tienda = {((c.get("name") or {}).get("es") or "").strip().upper() for c in p.get("categories") or []}
+            if (cat_dorsal and cat_dorsal in de_la_tienda) or precios.ya_personalizado(modelo["nombre"], [talle_de(v) for v in p.get("variants") or []]):
                 personalizados.append(modelo)
             posibles = precios.lineas_posibles(categorias_del_producto(p, categorias), lineas)
             if len(posibles) > 1:

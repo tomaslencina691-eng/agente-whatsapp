@@ -8,8 +8,17 @@
   "aliasPago": "Tomi.lencin",
   "titularPago": "Tomás Geremias Lencina",
   "cuentaPago": "Lemon",
+  "categoriaDorsal": "CON DORSAL",
+  "sinonimosCalidad": {
+    "ORIGINAL": "top",
+    "CON DORSAL": "top"
+  },
   "topeTalle": 40,
-  "hitos": [50, 100, 200],
+  "hitos": [
+    50,
+    100,
+    200
+  ],
   "lineas": [
     {
       "id": "top",
@@ -140,6 +149,20 @@
       "nombre": "Shorts",
       "tiendanube": [
         "SHORTS"
+      ]
+    },
+    {
+      "id": "original",
+      "nombre": "Original",
+      "tiendanube": [
+        "ORIGINAL"
+      ]
+    },
+    {
+      "id": "dorsal",
+      "nombre": "Con dorsal",
+      "tiendanube": [
+        "CON DORSAL"
       ]
     }
   ],
