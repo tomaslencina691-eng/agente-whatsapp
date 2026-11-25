@@ -401,6 +401,59 @@ def _revisar_modelos_nuevos() -> None:
     _almacen.guardar_config("avisos_estado", {**estado, "nuevosAvisados": [n["id"] for n in nuevos]})
 
 
+SEGUNDOS_ENTRE_ALTAS = int(os.getenv("MAYORISTA_ALTAS_SEGUNDOS", "300"))
+
+
+def sumar_modelos_nuevos(productos: list[dict] | None = None) -> list[str]:
+    """Con el stock compartido, los modelos nuevos de Tiendanube entran solos al mayorista.
+
+    Entran los publicados, con foto, con algún talle con stock y con una calidad (una línea de
+    precios: sin eso no tendrían precio). Los que se ignoraron en el panel, no. Queda en el
+    historial a nombre de «automático». Devuelve los nombres de los que entraron.
+    """
+    if _almacen is None or not tn.configurado() or not getattr(_almacen, "activo", lambda: False)():
+        return []
+    productos = _traer_productos() if productos is None else productos
+    incluidos = _almacen.incluidos()
+    ignorados = {i["producto_id"] for i in _almacen.ignorados()}
+    lineas = web_vigente()["lineas"]
+    entraron: list[str] = []
+    for p in productos:
+        if p["id"] in incluidos or p["id"] in ignorados or not admin.es_elegible(p):
+            continue
+        filas = admin.filas_de_producto(p, True)
+        if not any(n > 0 for _, _, n in filas):
+            continue
+        if lineas and not precios.linea_de(cats_para_precio(p), lineas):
+            continue
+        _almacen.cargar(filas)
+        nombre = (p.get("name") or {}).get("es") or f"Modelo {p['id']}"
+        entraron.append(nombre)
+        if _historial:
+            try:
+                _historial.anotar(hist.lote_nuevo(), "automático", [{"accion": "incluido", "producto_id": p["id"], "producto": nombre,
+                                  "talle": ", ".join(t for _, t, _ in filas), "antes": None, "despues": sum(n for _, _, n in filas)}])
+            except Exception:  # noqa: BLE001
+                log.exception("No se pudo anotar en el historial el alta automática de %s", nombre)
+    if entraron:
+        log.info("Entraron solos al mayorista: %s", ", ".join(entraron))
+        if callable(getattr(_almacen, "invalidar", None)):
+            _almacen.invalidar()
+        _invalidar_cache()
+    return entraron
+
+
+async def _sumar_los_nuevos() -> None:
+    """Cada 5 minutos, los modelos nuevos de Tiendanube entran solos (con el stock compartido prendido)."""
+    await asyncio.sleep(60)
+    while True:
+        try:
+            await asyncio.to_thread(sumar_modelos_nuevos)
+        except Exception:  # noqa: BLE001
+            log.exception("No se pudieron sumar los modelos nuevos de la tienda")
+        await asyncio.sleep(SEGUNDOS_ENTRE_ALTAS)
+
+
 async def _vigilar_la_tienda() -> None:
     """Cada 3 horas mira si hay modelos nuevos en la tienda (el primer vistazo, a los 2 minutos de arrancar)."""
     await asyncio.sleep(120)
@@ -430,14 +483,17 @@ async def _vida(_app: FastAPI):
     # Crean las tablas; si no hay base, el contenedor falla a la vista.
     if _historial:
         _historial.preparar()
-    vigilante = vigilante_de_pagos = None
+    vigilante = vigilante_de_pagos = sumador = None
     if _almacen:
         _almacen.preparar()
         if CARGAR_STOCK_INICIAL:
             _cargar_stock_inicial()
         vigilante = asyncio.create_task(_vigilar_la_tienda())
         vigilante_de_pagos = asyncio.create_task(_vigilar_los_pagos())
+        sumador = asyncio.create_task(_sumar_los_nuevos())
     yield
+    if sumador:
+        sumador.cancel()
     if vigilante:
         vigilante.cancel()
     if vigilante_de_pagos:
