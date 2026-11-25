@@ -503,6 +503,8 @@ def api_catalogo(response: Response) -> dict:
         "color": w["color"],
         "mensaje": w["mensaje"],
         "pausa": w["pausa"],
+        "mantenimiento": w["mantenimiento"],
+        "mensajeMantenimiento": w["mensajeMantenimiento"],
         "aviso": w["aviso"],
         "horario": w["horario"],
         "instagram": w["instagram"],
@@ -582,6 +584,8 @@ def api_pedido(datos: PedidoNuevo, request: Request) -> dict:
     """Guarda el pedido. La web lo manda justo antes de abrir WhatsApp; si falla, el pedido sale igual."""
     if _almacen is None:
         raise HTTPException(503, "Los pedidos no se están guardando en este servidor.")
+    if web_vigente()["mantenimiento"]:
+        raise HTTPException(409, "La web está en actualización: probá de nuevo en un rato.")
     if web_vigente()["pausa"]:
         raise HTTPException(409, "Los pedidos están en pausa por ahora.")
     if _demasiados_pedidos(_ip_de(request)):

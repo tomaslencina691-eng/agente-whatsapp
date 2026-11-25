@@ -3,6 +3,8 @@
   "minimo": 6,
   "filtroVersion": false,
   "tramos": [],
+  "mantenimiento": true,
+  "mensajeMantenimiento": "Estamos actualizando la web mayorista para que tu pedido salga perfecto. Volvé en un rato 🙌",
   "aliasPago": "Tomi.lencin",
   "titularPago": "Tomás Geremias Lencina",
   "cuentaPago": "Lemon",

@@ -105,6 +105,9 @@ class AjustesWeb(BaseModel):
     # Las metas de la barra de cada línea después de su mejor precio (pedidos grandes: 50, 100, 200).
     hitos: list[int] = Field(default=[], max_length=8)
     pausa: bool = False
+    # Página en construcción: la web entera queda tapada por un cartel y no se puede pedir nada.
+    mantenimiento: bool = False
+    mensajeMantenimiento: str = Field(default="", max_length=300)
     aviso: str = Field(default="", max_length=160)
     limitarStock: bool = True
     filtroVersion: bool = True
@@ -195,6 +198,8 @@ def por_defecto(negocio: dict, marca: str, whatsapp: str, tienda_url: str, limit
         "topeTalle": int(negocio.get("topeTalle") or 0),
         "hitos": sorted({int(h) for h in negocio.get("hitos") or [] if int(h) > 0}),
         "pausa": False,
+        "mantenimiento": negocio.get("mantenimiento") is True,
+        "mensajeMantenimiento": str(negocio.get("mensajeMantenimiento") or ""),
         "aviso": "",
         "limitarStock": limitar_stock,
         "filtroVersion": negocio.get("filtroVersion", True) is not False,

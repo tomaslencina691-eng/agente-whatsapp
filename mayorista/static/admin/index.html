@@ -446,6 +446,8 @@ details.np-mas .cuerpo { display: grid; gap: 12px; padding-top: 12px; }
             <span class="ayuda">Después del mejor precio, la barra de cada línea sigue hasta estas cantidades (y después de a 100). Vacío = la barra queda llena.</span></div>
         </div>
         <label class="opcion"><input type="checkbox" id="wOcultarPrecios" data-w="ocultarPrecios"><span><b>Ocultar los precios</b><small>La web no muestra las escalas ni el total: pide que el equipo los confirme.</small></span></label>
+        <label class="opcion"><input type="checkbox" id="wMantenimiento" data-w="mantenimiento"><span><b>Página en construcción</b><small>La web entera queda tapada por un cartel: no se ve el catálogo ni se puede pedir nada. Apagalo para volver a abrirla.</small></span></label>
+        <div class="campo"><label for="wMensajeMantenimiento">Texto del cartel de construcción</label><textarea id="wMensajeMantenimiento" data-w="mensajeMantenimiento" rows="2" maxlength="300"></textarea></div>
         <label class="opcion"><input type="checkbox" id="wPausa" data-w="pausa"><span><b>Pausar los pedidos</b><small>El catálogo se sigue viendo, pero no se puede enviar el pedido.</small></span></label>
         <div class="campo"><label for="wAviso">Aviso arriba de la web</label><input id="wAviso" data-w="aviso" maxlength="160" placeholder="Ej: Cerrado por balance hasta el lunes 24"><span class="ayuda">Si lo dejás vacío, no se muestra.</span></div>
       </div></details>

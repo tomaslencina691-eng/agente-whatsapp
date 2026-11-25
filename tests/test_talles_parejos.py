@@ -124,3 +124,24 @@ def test_el_alias_sale_de_negocio_json_si_no_se_guardo_otro():
     d = ajustes.por_defecto({"aliasPago": "Tomi.lencin", "cuentaPago": "Lemon"}, "Tienda", "5491100000000", "", True, 6, [])
 
     assert (d["aliasPago"], d["titularPago"], d["cuentaPago"]) == ("Tomi.lencin", "", "Lemon")
+
+
+# -- Página en construcción -----------------------------------------------------------------
+
+
+def test_en_construccion_la_web_lo_sabe_y_no_toma_pedidos(cliente, con_lineas):
+    guardar_web(con_lineas, mantenimiento=True, mensajeMantenimiento="Volvemos en un rato")
+
+    d = cliente.get("/api/catalogo").json()
+    r = cliente.post("/api/pedido", json=pedido_web())
+
+    assert (d["mantenimiento"], d["mensajeMantenimiento"]) == (True, "Volvemos en un rato")
+    assert r.status_code == 409
+    assert con_lineas.pedido("A-7K3QX") is None
+
+
+def test_la_construccion_sale_de_negocio_json_hasta_que_se_apague_en_el_panel():
+    d = ajustes.por_defecto({"mantenimiento": True}, "Tienda", "5491100000000", "", True, 6, [])
+
+    assert d["mantenimiento"] is True
+    assert ajustes.combinar(d, {"mantenimiento": False})["mantenimiento"] is False

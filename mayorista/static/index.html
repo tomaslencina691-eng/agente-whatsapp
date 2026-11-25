@@ -68,6 +68,15 @@ a { color: inherit; }
 .banda { background: var(--verde); color: var(--negro); }
 .banda .wrap { display: flex; flex-wrap: wrap; gap: 4px 22px; justify-content: center; padding-block: 8px; }
 .banda span { font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.obra { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 24px; background: var(--negro); text-align: center; }
+.obra[hidden] { display: none; }
+.obra .caja { max-width: 520px; display: grid; gap: 16px; justify-items: center; }
+.obra img { width: 72px; height: 72px; object-fit: contain; }
+.obra .marca-obra { font-weight: 800; font-size: 18px; letter-spacing: .04em; }
+.obra h1 { margin: 0; font-family: var(--display); font-size: clamp(34px, 9vw, 56px); line-height: .95; text-transform: uppercase; color: var(--verde); }
+.obra p { margin: 0; font-size: 17px; line-height: 1.5; color: var(--hielo); }
+.obra .barra-obra { width: 160px; height: 6px; border-radius: 3px; background: repeating-linear-gradient(45deg, var(--verde) 0 12px, transparent 12px 24px); opacity: .8; }
+body.en-obra { overflow: hidden; }
 .aviso-web { background: #3a2c08; color: #ffd36b; border-bottom: 1px solid #5c4710; text-align: center; padding: 10px max(16px, env(safe-area-inset-left, 0px)); font-weight: 600; font-size: 14px; }
 
 /* header */
@@ -280,6 +289,12 @@ a { color: inherit; }
   <span id="bandaIzq">Solo mayoristas</span><span id="bandaPrecios" style="display:contents"></span><span id="bandaDer">El pedido sale por WhatsApp</span>
 </div></div>
 <div class="aviso-web" id="avisoWeb" role="status" hidden></div>
+<div class="obra" id="obra" role="alert" hidden><div class="caja">
+  <img id="obraLogo" alt="" hidden><span class="marca-obra" id="obraMarca"></span>
+  <h1>Estamos en obra</h1>
+  <div class="barra-obra" aria-hidden="true"></div>
+  <p id="obraTexto"></p>
+</div></div>
 
 <header class="cab"><div class="wrap">
   <img class="logo" id="logo" alt="" width="48" height="48" hidden><strong id="marcaTexto" style="font-size:20px;font-weight:800"></strong>
@@ -738,6 +753,14 @@ function depurarPedido() {
 }
 
 /* Lo que cambia de un negocio a otro (marca, precios, categorías, condiciones) viene de negocio.json. */
+/* Página en construcción: un cartel tapa todo y no se puede hacer nada (se prende y apaga desde el panel). */
+function mostrarObra(d) {
+  $("obraMarca").textContent = d.marca || "";
+  $("obraTexto").textContent = d.mensajeMantenimiento || "Estamos actualizando la web. Volvé en un rato.";
+  if (d.logo) { $("obraLogo").src = d.logo; $("obraLogo").hidden = false; $("obraLogo").onerror = () => ($("obraLogo").hidden = true); }
+  $("obra").hidden = false; document.body.classList.add("en-obra");
+  document.title = d.marca ? `${d.marca} · En actualización` : "En actualización";
+}
 function aplicarNegocio(d) {
   const marca = d.marca || "", tr = (d.tramos || []).slice().reverse();
   document.title = d.seoTitulo || (marca ? `${marca} Mayorista` : "Mayorista");
@@ -782,6 +805,7 @@ async function cargar() {
     const r = await fetch("/api/catalogo", { cache: "no-store" });
     if (!r.ok) throw new Error(r.status);
     const d = await r.json();
+    if (d.mantenimiento) { mostrarObra(d); $("estado").hidden = true; return; }
     CFG = { tramos: d.tramos, lineas: d.lineas || [], minimo: d.minimo, topeTalle: d.topeTalle || 0, hitos: d.hitos || [], aliasPago: d.aliasPago || "", titularPago: d.titularPago || "", cuentaPago: d.cuentaPago || "", limitarStock: d.limitarStock, mostrarUnidades: d.mostrarUnidades !== false, whatsapp: d.whatsapp, marca: d.marca || "", filtroVersion: d.filtroVersion !== false, mensaje: d.mensaje || "{pedido}", pausa: !!d.pausa, pedirEnvio: d.pedirEnvio !== false, pago: d.pago || "" };
     aplicarNegocio(d);
     PRODUCTOS = d.productos; porId = new Map(PRODUCTOS.map((p) => [p.id, p]));
