@@ -7,7 +7,7 @@ solo stock: el de Tiendanube.
     mismo que la tienda online).
   · Todo lo que cambia el stock desde el mayorista se ESCRIBE en Tiendanube:
     confirmar un pedido (pago verificado) descuenta, cancelar uno confirmado
-    devuelve, y editar la planilla o cargar por curva lo fija. Una venta de la
+    devuelve, y editar la planilla lo fija. Una venta de la
     tienda online ya descuenta del mismo stock, así que se ve en el mayorista.
 
 Apagado, nada de esto rige: el mayorista sigue con su stock propio (almacen.py).

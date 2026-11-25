@@ -130,7 +130,6 @@ th, td { padding: 4px 6px; border-bottom: 1px solid var(--linea); border-right: 
 th { position: sticky; top: 0; z-index: 5; background: var(--pino); font-weight: 800; letter-spacing: .06em; font-size: 12px; text-transform: uppercase; padding-block: 9px; }
 th.modelo, td.modelo { text-align: left; position: sticky; left: 0; z-index: 4; background: var(--noche-2); min-width: 250px; max-width: 330px; }
 th.modelo { z-index: 6; background: var(--pino); }
-td.sel, th.sel { width: 34px; }
 td.foto { width: 46px; padding: 3px; }
 td.foto img { width: 40px; height: 40px; object-fit: cover; border-radius: 6px; background: #2b2b2b; display: block; }
 .nombre { font-weight: 700; overflow-wrap: anywhere; }
@@ -337,7 +336,6 @@ details.np-mas .cuerpo { display: grid; gap: 12px; padding-top: 12px; }
         <option value="cambios">Con cambios sin guardar</option>
       </select>
       <button class="btn fuerte" id="btnNuevoProducto" type="button">Subir producto nuevo</button>
-      <button class="btn" id="btnCurva" type="button" disabled>Cargar por curva</button>
       <span class="espacio"></span>
       <span class="estado" id="estadoCambios"></span>
       <button class="btn" id="btnDescartar" type="button" disabled>Descartar</button>
@@ -577,7 +575,7 @@ details.np-mas .cuerpo { display: grid; gap: 12px; padding-top: 12px; }
 
     <div class="grupo" id="cuStock" hidden>
       <b>Stock compartido con Tiendanube</b>
-      <p class="ayuda">Un solo stock: el de Tiendanube. Prendido, la web mayorista, el panel y el agente muestran lo mismo que la tienda online; al confirmar un pedido (pago verificado) se descuenta en Tiendanube, al cancelar uno confirmado se devuelve, y lo que cargues en la planilla o por curva se escribe allá. Una venta de la tienda online se ve en el mayorista en menos de un minuto.</p>
+      <p class="ayuda">Un solo stock: el de Tiendanube. Prendido, la web mayorista, el panel y el agente muestran lo mismo que la tienda online; al confirmar un pedido (pago verificado) se descuenta en Tiendanube, al cancelar uno confirmado se devuelve, y lo que cargues en la planilla se escribe allá. Una venta de la tienda online se ve en el mayorista en menos de un minuto.</p>
       <div id="cuStockEstado" class="ayuda">Cargando...</div>
       <div class="acciones" style="justify-content:flex-start"><button class="btn fuerte" id="cuStockActivar" type="button" hidden>Activar el stock compartido</button><button class="btn" id="cuStockApagar" type="button" hidden>Volver al stock propio</button></div>
       <div class="mensaje" id="cuStockMsg" role="status"></div>
@@ -622,18 +620,6 @@ details.np-mas .cuerpo { display: grid; gap: 12px; padding-top: 12px; }
 
 <!-- Ventanas -->
 <div class="velo" id="velo"></div>
-
-<section class="ventana" id="ventanaCurva" role="dialog" aria-modal="true" aria-labelledby="tCurva">
-  <h2 id="tCurva">Cargar por curva</h2>
-  <p class="ayuda" id="curvaModelos"></p>
-  <div class="campo"><label for="curvaTexto">Curva de talles</label><input id="curvaTexto" placeholder="S1 M2 L3 XL2 XXL1" autocomplete="off"></div>
-  <div class="campo"><label for="curvaVeces">Cuántas veces</label><input id="curvaVeces" type="number" min="1" max="99" value="1" inputmode="numeric"></div>
-  <div class="campo"><label for="curvaModo">Cómo se aplica</label>
-    <select id="curvaModo"><option value="sumar">Sumar al stock que hay</option><option value="poner">Dejar exactamente esa cantidad</option></select></div>
-  <p class="ayuda" id="curvaResumen"></p>
-  <div class="mensaje" id="errorCurva" role="alert"></div>
-  <div class="acciones"><button class="btn" type="button" data-cerrar>Cancelar</button><button class="btn fuerte" id="btnAplicarCurva" type="button">Aplicar a la planilla</button></div>
-</section>
 
 <section class="ventana ancha" id="ventanaProducto" role="dialog" aria-modal="true" aria-labelledby="tProducto">
   <h2 id="tProducto">Subir producto nuevo</h2>
@@ -700,7 +686,6 @@ const esEstandar = (t) => ORDEN.includes(norm(t));
 
 let productos = [], maximo = 9999, columnas = ["S", "M", "L", "XL", "XXL"];
 let pend = new Map();          // "producto|TALLE" -> cambio pendiente
-let seleccion = new Set();     // ids de modelos tildados
 let visibles = [];             // modelos que se ven ahora, en orden
 let reintentoLogin = false;
 let planillaVieja = false;     // el stock cambió desde otra pestaña (un pedido, un modelo incluido)
@@ -776,7 +761,7 @@ async function cargarPlanilla() {
     const d = await api("/stock"); productos = d.productos; maximo = d.stock_maximo;
     const extra = new Set(); productos.forEach((p) => p.variantes.forEach((v) => { if (esEstandar(v.talle)) extra.add(norm(v.talle)); }));
     columnas = ORDEN.filter((t) => ["S", "M", "L", "XL", "XXL"].includes(t) || extra.has(t));
-    pend.clear(); seleccion.clear(); planillaVieja = false; $("cargando").hidden = true; pintar();
+    pend.clear(); planillaVieja = false; $("cargando").hidden = true; pintar();
     if (d.vacio) {
       $("cargando").hidden = false;
       $("cargando").innerHTML = 'El stock del mayorista está vacío. Para arrancar, podés copiar una sola vez el stock que hoy tiene la tienda.<br><br><button class="btn fuerte" id="btnCargaInicial" type="button">Copiar el stock de la tienda</button>';
@@ -802,10 +787,9 @@ function filtrar() {
   });
 }
 function pintar() {
-  $("cabeza").innerHTML = `<tr><th class="sel"><input type="checkbox" id="selTodos" aria-label="Seleccionar los que se ven"></th><th></th><th class="modelo">Modelo</th>${columnas.map((t) => `<th>${t}</th>`).join("")}<th>Otras</th><th>Total</th></tr>`;
+  $("cabeza").innerHTML = `<tr><th></th><th class="modelo">Modelo</th>${columnas.map((t) => `<th>${t}</th>`).join("")}<th>Otras</th><th>Total</th></tr>`;
   visibles = filtrar();
-  $("cuerpo").innerHTML = visibles.map(fila).join("") || `<tr><td colspan="${columnas.length + 5}" class="vacio">No hay modelos con ese filtro.</td></tr>`;
-  $("selTodos").checked = visibles.length > 0 && visibles.every((p) => seleccion.has(p.id));
+  $("cuerpo").innerHTML = visibles.map(fila).join("") || `<tr><td colspan="${columnas.length + 4}" class="vacio">No hay modelos con ese filtro.</td></tr>`;
   estadoBarra();
 }
 function celda(p, t) {
@@ -820,7 +804,6 @@ function fila(p) {
     return `<div class="otra"><span>${esc(v.talle)}</span><input class="celda${c ? " cambio" : ""}${val === 0 ? " cero" : ""}" data-p="${p.id}" data-t="${esc(v.talle)}" value="${val == null ? "" : val}" inputmode="numeric" maxlength="4" autocomplete="off"${v.stock == null ? " disabled" : ""} aria-label="${esc(p.nombre)} ${esc(v.talle)}"></div>`; }).join("");
   const total = totalDe(p);
   return `<tr data-fila="${p.id}" class="${tieneCambios(p) ? "fila-cambio" : ""}${total === 0 ? " sin-stock" : ""}">
-    <td class="sel"><input type="checkbox" data-sel="${p.id}" ${seleccion.has(p.id) ? "checked" : ""} aria-label="Elegir ${esc(p.nombre)}"></td>
     <td class="foto">${p.foto ? `<img src="/admin/api/foto/${p.id}" alt="" loading="lazy" width="40" height="40">` : ""}</td>
     <td class="modelo"><div class="nombre">${esc(p.nombre)}</div><div class="etiquetas">${p.enTienda === false ? `<span class="etq oculto">Borrado de la tienda</span><button class="btn chico" type="button" data-quitar-modelo="${p.id}" title="Sacarlo de la planilla">Quitar</button>` : p.publicado ? "" : `<span class="etq oculto">Oculto</span><button class="btn chico" type="button" data-publicar="${p.id}" title="Publicarlo en la tienda online">Publicar</button>`}${p.categorias.map((c) => `<span class="etq">${esc(c)}</span>`).join("")}</div></td>
     ${columnas.map((t) => celda(p, t)).join("")}<td class="otras">${otras}</td><td class="total" data-total="${p.id}">${total}</td></tr>`;
@@ -829,7 +812,6 @@ function estadoBarra() {
   const n = pend.size;
   $("estadoCambios").innerHTML = n ? `<b>${n}</b> ${n === 1 ? "cambio" : "cambios"} sin guardar` : `${visibles.length} de ${productos.length} modelos`;
   $("btnGuardar").disabled = n === 0; $("btnDescartar").disabled = n === 0;
-  $("btnCurva").disabled = seleccion.size === 0; $("btnCurva").textContent = seleccion.size ? `Cargar por curva (${seleccion.size})` : "Cargar por curva";
 }
 
 /* anota (o borra) el cambio de una celda */
@@ -882,15 +864,6 @@ $("cuerpo").addEventListener("paste", (e) => {
     fijar(p, talle, limpio); n++;
   }));
   pintar(); aviso(n ? `Se pegaron ${n} celdas. Revisalas y guardá.` : "No había números para pegar.");
-});
-$("cuerpo").addEventListener("change", (e) => {
-  const c = e.target.closest("[data-sel]"); if (!c) return;
-  const id = Number(c.dataset.sel); c.checked ? seleccion.add(id) : seleccion.delete(id); estadoBarra();
-  $("selTodos").checked = visibles.length > 0 && visibles.every((p) => seleccion.has(p.id));
-});
-$("cabeza").addEventListener("change", (e) => {
-  if (e.target.id !== "selTodos") return;
-  visibles.forEach((p) => (e.target.checked ? seleccion.add(p.id) : seleccion.delete(p.id))); pintar();
 });
 $("buscar").addEventListener("input", pintar); $("filtro").addEventListener("change", pintar);
 $("btnDescartar").addEventListener("click", () => { if (confirm("¿Descartar todos los cambios sin guardar?")) { pend.clear(); pintar(); } });
@@ -1024,7 +997,7 @@ $("cuerpo").addEventListener("click", async (e) => {
   const p = productos.find((x) => x.id === Number(q.dataset.quitarModelo));
   if (!confirm(`¿Sacar «${p ? p.nombre : "este modelo"}» de la planilla? Ya no existe en Tiendanube.`)) return;
   q.disabled = true;
-  try { await api(`/productos/${q.dataset.quitarModelo}/quitar`, { metodo: "POST" }); productos = productos.filter((x) => x.id !== Number(q.dataset.quitarModelo)); seleccion.delete(Number(q.dataset.quitarModelo)); pintar(); aviso("Listo: se sacó de la planilla."); }
+  try { await api(`/productos/${q.dataset.quitarModelo}/quitar`, { metodo: "POST" }); productos = productos.filter((x) => x.id !== Number(q.dataset.quitarModelo)); pintar(); aviso("Listo: se sacó de la planilla."); }
   catch (err) { alert(err.message); q.disabled = false; }
 });
 $("cuerpo").addEventListener("click", async (e) => {
@@ -1034,34 +1007,6 @@ $("cuerpo").addEventListener("click", async (e) => {
   b.disabled = true;
   try { await api(`/productos/${b.dataset.publicar}/publicar`, { metodo: "POST" }); if (p) p.publicado = true; pintar(); aviso("Publicado en la tienda online."); }
   catch (err) { alert(err.message); b.disabled = false; }
-});
-
-/* ---------- curva ---------- */
-function leerCurva(texto) {
-  const curva = {}; let resto = texto.toUpperCase();
-  for (const m of texto.toUpperCase().matchAll(/(XXXL|XXL|XL|XS|S|M|L)\s*[:=xX×]?\s*(\d+)/g)) { curva[m[1]] = (curva[m[1]] || 0) + parseInt(m[2], 10); resto = resto.replace(m[0], " "); }
-  return { curva, sobra: resto.replace(/[\s,;|]+/g, "") };
-}
-function resumenCurva() {
-  const { curva, sobra } = leerCurva($("curvaTexto").value), veces = Math.max(1, parseInt($("curvaVeces").value, 10) || 1);
-  const porModelo = Object.values(curva).reduce((a, b) => a + b, 0) * veces;
-  $("errorCurva").textContent = sobra ? `No entiendo «${sobra}». Escribila así: S1 M2 L3 XL2 XXL1.` : "";
-  $("curvaResumen").textContent = porModelo ? `${porModelo} camisetas por modelo × ${seleccion.size} ${seleccion.size === 1 ? "modelo" : "modelos"} = ${porModelo * seleccion.size} en total.` : "";
-  return { curva, veces, ok: porModelo > 0 && !sobra };
-}
-$("btnCurva").addEventListener("click", () => {
-  $("curvaModelos").textContent = `Se aplica a ${seleccion.size} ${seleccion.size === 1 ? "modelo tildado" : "modelos tildados"}. Después revisás y guardás.`;
-  abrir("ventanaCurva"); $("curvaTexto").focus(); resumenCurva();
-});
-["curvaTexto", "curvaVeces"].forEach((id) => $(id).addEventListener("input", resumenCurva));
-$("btnAplicarCurva").addEventListener("click", () => {
-  const { curva, veces, ok } = resumenCurva(); if (!ok) { if (!$("errorCurva").textContent) $("errorCurva").textContent = "Escribí la curva, por ejemplo: S1 M2 L3 XL2 XXL1."; return; }
-  const sumar = $("curvaModo").value === "sumar";
-  productos.filter((p) => seleccion.has(p.id)).forEach((p) => Object.entries(curva).forEach(([talle, n]) => {
-    const v = varianteDe(p, talle); if (v && v.stock == null) return;
-    const base = sumar ? (valorMostrado(p, talle) || 0) : 0; fijar(p, talle, base + n * veces);
-  }));
-  cerrar(); pintar(); aviso("Curva aplicada. Revisá las celdas en mostaza y guardá.");
 });
 
 /* ---------- guardar ---------- */
