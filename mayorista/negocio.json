@@ -13,6 +13,9 @@
     "ORIGINAL": "top",
     "CON DORSAL": "top"
   },
+  "variantesSueltas": [
+    "top_pers"
+  ],
   "topeTalle": 40,
   "hitos": [
     50,

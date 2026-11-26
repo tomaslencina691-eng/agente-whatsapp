@@ -45,10 +45,34 @@ def variante_de(linea: dict, lineas: list[dict]) -> dict:
     return next((v for v in lineas if v.get("personalizadaDe") == linea["id"]), linea)
 
 
+def sueltas_habilitadas(por_linea: dict[str, int], lineas: list[dict], sueltas: Iterable[str]) -> set[str]:
+    """Las variantes que van sin mínimo en este pedido: su línea base ya llegó a su mínimo.
+
+    Es la regla «con 6 lisas de Top Quality, de 1 a 11 con dorsal a $45.000»: la variante
+    (con parche y número) se puede sumar desde 1, al precio de su primera escala.
+    """
+    salida = set()
+    for l in lineas:
+        if l["id"] in set(sueltas) and l.get("personalizadaDe"):
+            base = next((b for b in lineas if b["id"] == l["personalizadaDe"]), None)
+            if base and por_linea.get(base["id"], 0) >= base["minimo"]:
+                salida.add(l["id"])
+    return salida
+
+
+def precio_suelto(linea: dict, unidades: int) -> int | None:
+    """El precio de una variante suelta: el de su escala si llega, si no el de su primera escala."""
+    precio = precio_de_linea(linea, unidades)
+    if precio is None and linea.get("tramos"):
+        precio = min(linea["tramos"], key=lambda t: t["desde"])["precio"]
+    return precio
+
+
 def total_del_pedido(
     items: list[tuple],
     lineas: list[dict],
     precio_general: Callable[[int], int | None],
+    sueltas: Iterable[str] = (),
 ) -> int | None:
     """El total estimado de un pedido: [(categorías del modelo, cantidad[, con parche y número])].
 
@@ -67,11 +91,12 @@ def total_del_pedido(
             por_linea[l["id"]] = por_linea.get(l["id"], 0) + cantidad
 
     total = 0
+    habilitadas = sueltas_habilitadas(por_linea, lineas, sueltas)
     for l in lineas:
         n = por_linea.get(l["id"], 0)
         if not n:
             continue
-        precio = precio_de_linea(l, n)
+        precio = precio_suelto(l, n) if l["id"] in habilitadas else precio_de_linea(l, n)
         if precio is None:
             return None
         total += precio * n

@@ -575,6 +575,7 @@ def api_catalogo(response: Response) -> dict:
         # Las líneas llevan el mínimo de cada una; con los precios ocultos van sin escalas.
         "lineas": [{**l, "tramos": [] if w["ocultarPrecios"] else sorted(l["tramos"], key=lambda t: t["desde"], reverse=True)} for l in w["lineas"]],
         "topeTalle": w["topeTalle"],
+        "variantesSueltas": w["variantesSueltas"],
         "hitos": sorted(w["hitos"]),
         "limitarStock": w["limitarStock"],
         "mostrarUnidades": w["mostrarUnidades"],
@@ -674,7 +675,8 @@ def _total_estimado(items: list[dict], unidades: int) -> int | None:
         precio = precio_unidad(unidades)
         return precio * unidades if precio else None
     cats = {p["id"]: cats_para_precio(p) for p in _cache["productos"] or []}
-    return precios.total_del_pedido([(cats.get(i["producto"], []), i["cantidad"], bool(i.get("pers"))) for i in items], lineas, precio_unidad)
+    return precios.total_del_pedido([(cats.get(i["producto"], []), i["cantidad"], bool(i.get("pers"))) for i in items], lineas, precio_unidad,
+                                    web_vigente()["variantesSueltas"])
 
 
 @app.post("/api/pedido")

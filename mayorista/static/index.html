@@ -228,6 +228,7 @@ body.en-obra { overflow: hidden; }
 .meter p { margin: 0; font-size: 14px; }
 .meter p.reparto { font-size: 13px; color: var(--gris); }
 .meter p.aviso-talle { color: #ffb347; }
+.aviso-tope { color: #ffb347; font-weight: 600; }
 .totales { display: grid; gap: 4px; font-variant-numeric: tabular-nums; }
 .totales div { display: flex; justify-content: space-between; gap: 12px; }
 .totales .gran { font-family: var(--display); font-size: 34px; line-height: 1.05; font-weight: 800; color: var(--verde); }
@@ -363,6 +364,7 @@ body.en-obra { overflow: hidden; }
     <div class="prod-mini"><img id="tImg" src="" alt=""><div><h3 id="tNombre"></h3><span class="badge fan" id="tVersion" style="position:static;display:inline-block"></span></div></div>
     <div class="variante" id="tVariante" hidden></div>
     <div class="talles" id="tTalles"></div>
+    <p class="nota aviso-tope" id="tTope" role="alert" hidden></p>
     <p class="nota" id="tNota">Cargá cuántas camisetas de cada talle. Podés sumar varios modelos antes de enviar.</p>
   </div>
   <div class="hoja-pie"><button class="primario" id="tGuardar" type="button">Agregar al pedido</button></div>
@@ -376,7 +378,7 @@ body.en-obra { overflow: hidden; }
 
 <script>
 /* La configuración y los productos vienen del servidor (/api/catalogo). */
-let CFG = { tramos: [], lineas: [], minimo: 6, topeTalle: 0, hitos: [], aliasPago: "", titularPago: "", cuentaPago: "", limitarStock: true, mostrarUnidades: true, whatsapp: "", marca: "", filtroVersion: true, mensaje: "", pausa: false, pedirEnvio: true, pago: "" };
+let CFG = { tramos: [], lineas: [], minimo: 6, topeTalle: 0, hitos: [], variantesSueltas: [], aliasPago: "", titularPago: "", cuentaPago: "", limitarStock: true, mostrarUnidades: true, whatsapp: "", marca: "", filtroVersion: true, mensaje: "", pausa: false, pedirEnvio: true, pago: "" };
 let CATS = [["todas", "Todas"]];
 const VERS = [["todas", "Todas"], ["jugador", "Versión jugador"], ["fan", "Versión fan"]];
 let NOMBRE_CAT = {};
@@ -424,12 +426,21 @@ const persDe = (k) => esPers(k);
 const talleConDorsal = (p, talle) => !!((p.talles.find((t) => t.talle === talle) || {}).pers);
 const lineaClave = (k) => { const base = ((porId.get(idDe(k)) || {}).linea) || ""; return persDe(k) ? (variantes()[base] || base) : base; };
 const idsDe = (k) => Object.keys(pedido).filter((id) => lineaClave(id) === k);
+/* Las variantes que van sin mínimo: su línea base ya llegó a su mínimo (misma cuenta que precios.py).
+   Con 6 lisas de Top Quality, de 1 a 11 con dorsal al precio de su primera escala. */
+const nDeLinea = (k) => idsDe(k).reduce((a, id) => a + unidadesDeK(id), 0);
+function sueltasHabilitadas() {
+  return new Set(CFG.lineas.filter((l) => l.personalizadaDe && CFG.variantesSueltas.includes(l.id)).filter((l) => {
+    const base = CFG.lineas.find((b) => b.id === l.personalizadaDe); return base && nDeLinea(base.id) >= base.minimo;
+  }).map((l) => l.id));
+}
 function grupos() {
-  const salida = [];
+  const salida = [], sueltas = sueltasHabilitadas();
   const sumar = (k, nombre, minimo, tramos) => {
     const ids = idsDe(k), n = ids.reduce((a, id) => a + unidadesDeK(id), 0); if (!n) return;
-    const t = tramos.find((t) => n >= t.desde), proximo = tramos.slice().reverse().find((t) => n < t.desde);
-    salida.push({ k, nombre, ids, n, minimo, precio: t ? t.precio : null, proximo: proximo || null, falta: Math.max(0, minimo - n) });
+    const suelta = sueltas.has(k), primera = tramos.length ? tramos[tramos.length - 1] : null;
+    const t = tramos.find((t) => n >= t.desde) || (suelta ? primera : null), proximo = tramos.slice().reverse().find((t) => n < t.desde && !(suelta && t === primera));
+    salida.push({ k, nombre, ids, n, minimo: suelta ? 1 : minimo, suelta, precio: t ? t.precio : null, proximo: proximo || null, falta: Math.max(0, (suelta ? 1 : minimo) - n) });
   };
   CFG.lineas.forEach((l) => sumar(l.id, l.nombre, l.minimo, l.tramos));
   sumar("", CFG.lineas.length ? "Otros modelos" : "Pedido", CFG.minimo, CFG.tramos);
@@ -529,6 +540,32 @@ function abrirTalles(id, pers) {
   pintarTalles(); mostrar("hojaTalles");
 }
 const sumaBorrador = (v) => Object.values(borrador[v]).reduce((a, b) => a + b, 0);
+/* El pedido como quedaría con lo que hay en la hoja (y, si se pide, una más de un talle). */
+function pedidoConBorrador(extra) {
+  const p = porId.get(editando), copia = {};
+  Object.entries(pedido).forEach(([k, v]) => { if (idDe(k) !== editando) copia[k] = { ...v }; });
+  const poner = (k, talle, n) => { if (n > 0) { copia[k] = copia[k] || {}; copia[k][talle] = (copia[k][talle] || 0) + n; } };
+  const claveDe = (v, t) => (v === "p" || (p.personalizada && talleConDorsal(p, t)) ? editando + "p" : String(editando));
+  ["l", "p"].forEach((v) => Object.entries(borrador[v]).forEach(([t, n]) => poner(claveDe(v, t), t, n)));
+  if (extra) poner(claveDe(variante, extra), extra, 1);
+  return copia;
+}
+/* Pedido parejo al cargar: si sumar una más de ese talle deja la línea despareja, no se puede. Devuelve el exceso o null. */
+function excesoAlSumar(talle) {
+  if (!CFG.topeTalle) return null;
+  const real = pedido;
+  try {
+    pedido = pedidoConBorrador(talle);
+    const g = grupos().find((x) => x.ids.some((id) => idDe(id) === editando && ((pedido[id] || {})[talle] || 0) > 0));
+    if (!g) return null;
+    const e = excesos(g).find((x) => x.talle === talleBase(talle));
+    return e ? { ...e, linea: g.nombre, total: g.n } : null;
+  } finally { pedido = real; }
+}
+function mostrarTope(e) {
+  const caja = $("tTope"); caja.hidden = false;
+  caja.innerHTML = `⚠️ Pedido parejo: en <b>${esc(e.linea)}</b> cada talle puede ser hasta el ${CFG.topeTalle}% (mínimo 2). Con ${e.total} camisetas, ya llegaste a <b>${e.max} ${esc(e.talle)}</b>. Sumá otros talles (de este o de otros modelos de la misma calidad) y se habilita más.`;
+}
 function pintarTalles() {
   const p = porId.get(editando), otra = variante === "l" ? "p" : "l", conVariante = tienePers(p);
   $("tVariante").hidden = !conVariante;
@@ -540,8 +577,10 @@ function pintarTalles() {
     const n = borrador[variante][t.talle] || 0, usadas = n + (borrador[otra][t.talle] || 0);
     return `<div class="talle"><div><b>${esc(t.talle)}</b>${CFG.mostrarUnidades ? `<small>quedan ${t.stock}</small>` : ""}</div><div class="paso">
     <button type="button" data-i="${i}" data-d="-1" aria-label="Menos ${esc(t.talle)}">−</button><output aria-live="polite">${n}</output>
-    <button type="button" data-i="${i}" data-d="1" aria-label="Más ${esc(t.talle)}" ${usadas >= maximoDe(t) ? "disabled" : ""}>+</button></div></div>`;
+    <button type="button" data-i="${i}" data-d="1" aria-label="Más ${esc(t.talle)}" ${usadas >= maximoDe(t) || excesoAlSumar(t.talle) ? "disabled" : ""}>+</button></div></div>`;
   }).join("");
+  const trabado = CFG.topeTalle ? p.talles.map((t) => excesoAlSumar(t.talle)).find(Boolean) : null;
+  if (trabado) mostrarTope(trabado); else $("tTope").hidden = true;
   const n = sumaBorrador("l") + sumaBorrador("p");
   $("tGuardar").textContent = n ? `Guardar ${n} ${n === 1 ? "camiseta" : "camisetas"} en el pedido` : (unidadesDe(editando) ? "Quitar del pedido" : "Elegí al menos un talle");
 }
@@ -553,6 +592,7 @@ $("tTalles").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-i]"); if (!b || b.disabled) return;
   const t = porId.get(editando).talles[Number(b.dataset.i)], otra = variante === "l" ? "p" : "l";
   const tope = maximoDe(t) - (borrador[otra][t.talle] || 0);
+  if (Number(b.dataset.d) > 0) { const e = excesoAlSumar(t.talle); if (e) { mostrarTope(e); return; } }
   borrador[variante][t.talle] = Math.max(0, Math.min(tope, (borrador[variante][t.talle] || 0) + Number(b.dataset.d)));
   pintarTalles();
 });
@@ -645,6 +685,18 @@ function pintarPedido() {
     : g.proximo ? `<b>${esc(g.nombre)}</b>: sumando <b>${g.proximo.desde - g.n}</b> más pagás <b>${peso(g.proximo.precio)}</b> cada una.`
     : (g.precio != null ? `<b>${esc(g.nombre)}</b>: tenés el mejor precio, <b>${peso(g.precio)}</b> cada una.` : `<b>${esc(g.nombre)}</b>: el precio te lo confirma una persona del equipo.`)
       + (CFG.hitos.length ? ` Llevás <b>${g.n}</b> · próxima meta <b>${proximaMeta(g.n)}</b>.` : "");
+  /* La regla de las variantes sueltas: qué se puede sumar y a cuánto. */
+  const avisoSuelta = (g) => {
+    const variante = CFG.lineas.find((l) => l.personalizadaDe === g.k && CFG.variantesSueltas.includes(l.id));
+    if (g.suelta) { const base = CFG.lineas.find((b) => b.id === (CFG.lineas.find((l) => l.id === g.k) || {}).personalizadaDe);
+      return `<p class="aviso-talle">Como llevás ${base ? base.minimo : 6} o más de ${esc(base ? base.nombre : "la línea lisa")}, estas van sin mínimo: de 1 a 11 a <b>${g.precio != null ? peso(g.precio) : "precio a confirmar"}</b> c/u. Desde 12 rige el precio de 12.</p>`; }
+    if (variante && !g.falta && !gs.some((x) => x.k === variante.id)) { const primera = variante.tramos.length ? variante.tramos[variante.tramos.length - 1] : null;
+      return `<p class="aviso-talle">Con tus ${g.n} de ${esc(g.nombre)} podés sumar de 1 a 11 de ${esc(variante.nombre)}${primera ? ` a <b>${peso(primera.precio)}</b> c/u` : ""}, sin mínimo.</p>`; }
+    const propia = CFG.lineas.find((l) => l.id === g.k && l.personalizadaDe && CFG.variantesSueltas.includes(l.id));
+    if (propia && g.falta) { const base = CFG.lineas.find((b) => b.id === propia.personalizadaDe), primera = propia.tramos.length ? propia.tramos[propia.tramos.length - 1] : null;
+      if (base) return `<p class="aviso-talle">O llevá ${base.minimo} de ${esc(base.nombre)} y estas van sin mínimo: de 1 a 11${primera ? ` a <b>${peso(primera.precio)}</b> c/u` : ""}.</p>`; }
+    return "";
+  };
   /* El reparto por talle de cada línea y, si un talle se pasa, qué hacer. */
   const tallesLinea = (g) => {
     if (!CFG.topeTalle) return "";
@@ -655,7 +707,7 @@ function pintarPedido() {
     ? `<div class="meter">${gs.map((g) => {
         /* La barra de cada línea llena hasta su mínimo y después hasta la escala siguiente: se ve cuántas camisetas faltan. */
         const meta = g.falta ? g.minimo : g.proximo ? g.proximo.desde : CFG.hitos.length ? proximaMeta(g.n) : g.n;
-        return `<div class="med"><div class="barra" role="progressbar" aria-label="${esc(g.nombre)}" aria-valuemin="0" aria-valuemax="${meta}" aria-valuenow="${Math.min(g.n, meta)}"><i style="width:${Math.min(100, (g.n / meta) * 100)}%"></i></div><p>${avisoLinea(g)}</p>${tallesLinea(g)}</div>`;
+        return `<div class="med"><div class="barra" role="progressbar" aria-label="${esc(g.nombre)}" aria-valuemin="0" aria-valuemax="${meta}" aria-valuenow="${Math.min(g.n, meta)}"><i style="width:${Math.min(100, (g.n / meta) * 100)}%"></i></div><p>${avisoLinea(g)}</p>${avisoSuelta(g)}${tallesLinea(g)}</div>`;
       }).join("")}</div>`
     : `<div class="meter"><div class="barra" role="progressbar" aria-valuemin="0" aria-valuemax="${meta}" aria-valuenow="${Math.min(n, meta)}"><i style="width:${Math.min(100, (n / meta) * 100)}%"></i></div><p>${aviso}</p>${gs.length ? "" : grupos().map(tallesLinea).join("")}</div>`;
   const f = datosGuardados;
@@ -818,7 +870,7 @@ async function cargar() {
     if (!r.ok) throw new Error(r.status);
     const d = await r.json();
     if (d.mantenimiento) { mostrarObra(d); $("estado").hidden = true; return; }
-    CFG = { tramos: d.tramos, lineas: d.lineas || [], minimo: d.minimo, topeTalle: d.topeTalle || 0, hitos: d.hitos || [], aliasPago: d.aliasPago || "", titularPago: d.titularPago || "", cuentaPago: d.cuentaPago || "", limitarStock: d.limitarStock, mostrarUnidades: d.mostrarUnidades !== false, whatsapp: d.whatsapp, marca: d.marca || "", filtroVersion: d.filtroVersion !== false, mensaje: d.mensaje || "{pedido}", pausa: !!d.pausa, pedirEnvio: d.pedirEnvio !== false, pago: d.pago || "" };
+    CFG = { tramos: d.tramos, lineas: d.lineas || [], minimo: d.minimo, topeTalle: d.topeTalle || 0, hitos: d.hitos || [], variantesSueltas: d.variantesSueltas || [], aliasPago: d.aliasPago || "", titularPago: d.titularPago || "", cuentaPago: d.cuentaPago || "", limitarStock: d.limitarStock, mostrarUnidades: d.mostrarUnidades !== false, whatsapp: d.whatsapp, marca: d.marca || "", filtroVersion: d.filtroVersion !== false, mensaje: d.mensaje || "{pedido}", pausa: !!d.pausa, pedirEnvio: d.pedirEnvio !== false, pago: d.pago || "" };
     aplicarNegocio(d);
     PRODUCTOS = d.productos; porId = new Map(PRODUCTOS.map((p) => [p.id, p]));
     $("waDirecto").href = `https://wa.me/${CFG.whatsapp}`;

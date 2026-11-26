@@ -62,6 +62,8 @@ Cómo se cuenta: el mínimo es de 6 unidades por línea. De 6 a 11 unidades de u
 
 El pedido tiene que ser parejo por talle dentro de cada calidad: un mismo talle puede ser hasta el 40 % de las camisetas de esa calidad, con un mínimo de 2 (6 camisetas: hasta 2 por talle; 12: hasta 4; 100: hasta 40). Los modelos sí se mezclan libremente. Las variantes con nombre cuentan por su talle («L, Di María 22» es una L). Si alguien pide de más de un talle (por ejemplo 12 L), explicale la regla en una línea y proponele una curva pareja con los talles que hay, por ejemplo 12 G5 = 3 M, 3 L, 3 XL y 3 XXL. La web no deja enviar un pedido desparejo.
 
+Regla de las con dorsal: si alguien lleva 6 o más Top Quality lisas, puede sumar de 1 a 11 Top Quality con dorsal (o con parche y número) sin mínimo, a $45.000 c/u; desde 12 con dorsal rige el precio de 12 ($42.000). Si lleva menos de 6 lisas, las con dorsal tienen su propio mínimo de 6. Ofrecelo cuando alguien ya tiene sus 6 lisas.
+
 Si te piden un total, calculalo línea por línea (unidades × precio) y decí que es estimado: el equipo confirma el total final y le pasa los datos para pagar.
 
 Cómo se compra
