@@ -68,3 +68,27 @@ def test_sin_precios_cargados_la_web_no_muestra_envios(cliente, con_lineas):
     guardar_web(con_lineas, envios=[VIA_CARGO_VACIA])
 
     assert cliente.get("/api/catalogo").json()["envios"] == []
+
+
+def test_la_web_recibe_el_paquete_y_el_divisor(cliente, con_lineas):
+    guardar_web(con_lineas, envios=[{**CORREO, "divisor": 4000}], paqueteLargo=40, paqueteAncho=30, altoPorCamiseta=15)
+    d = cliente.get("/api/catalogo").json()
+
+    assert d["paquete"] == {"largo": 40, "ancho": 30, "altoMm": 15}
+    assert d["envios"][0]["divisor"] == 4000
+
+
+def test_el_negocio_trae_el_paquete_de_30x40_y_divisor():
+    negocio = json.loads((Path(servidor.__file__).parent / "negocio.json").read_text(encoding="utf-8"))
+
+    assert (negocio["paqueteLargo"], negocio["paqueteAncho"]) == (40, 30)
+    assert all(t["divisor"] == 5000 for t in negocio["envios"])
+
+
+def test_la_fecha_de_las_tarifas_tiene_que_ser_una_fecha():
+    import pydantic
+    import pytest
+
+    assert con(enviosActualizados="2026-11-26").enviosActualizados == "2026-11-26"
+    with pytest.raises(pydantic.ValidationError):
+        con(enviosActualizados="ayer")

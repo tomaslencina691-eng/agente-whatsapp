@@ -454,9 +454,16 @@ details.np-mas .cuerpo { display: grid; gap: 12px; padding-top: 12px; }
         <div class="campo"><label for="wAviso">Aviso arriba de la web</label><input id="wAviso" data-w="aviso" maxlength="160" placeholder="Ej: Cerrado por balance hasta el lunes 24"><span class="ayuda">Si lo dejás vacío, no se muestra.</span></div>
       </div></details>
 
-      <details class="bloque"><summary>Envíos aproximados</summary><div class="cuerpo">
-        <p class="ayuda">En el carrito, cuando el cliente elige su provincia (o escribe el código postal), ve cuánto sale el envío por cada transporte, aproximado. El peso del pedido es la cantidad de camisetas por el peso de una camiseta embalada; se usa la primera columna «hasta X kg» que alcanza. Un precio en 0 se muestra «a cotizar». Un transporte sin ningún precio cargado no se muestra.</p>
-        <div class="campo" style="max-width:320px"><label for="wPesoCamiseta">Peso de una camiseta embalada (gramos)</label><input id="wPesoCamiseta" data-w="pesoCamiseta" type="number" min="50" max="3000" inputmode="numeric"></div>
+      <details class="bloque" id="wBloqueEnvios"><summary>Envíos aproximados</summary><div class="cuerpo">
+        <p class="ayuda">En el carrito, cuando el cliente elige su provincia (o escribe el código postal), ve cuánto sale el envío por cada transporte, aproximado. Las cuentas se hacen solas: con la cantidad de camisetas se arma el paquete y se cobra el mayor entre el peso real y el volumétrico, como hacen los transportes. Se usa la primera columna «hasta X kg» que alcanza. Un precio en 0 se muestra «a cotizar». Un transporte sin ningún precio cargado no se muestra.</p>
+        <div id="wTarifasFecha" class="ayuda"></div>
+        <div class="dos">
+          <div class="campo"><label for="wPesoCamiseta">Peso de una camiseta embalada (gramos)</label><input id="wPesoCamiseta" data-w="pesoCamiseta" type="number" min="50" max="3000" inputmode="numeric"></div>
+          <div class="campo"><label for="wAltoCamiseta">Alto que suma cada camiseta apilada (mm)</label><input id="wAltoCamiseta" data-w="altoPorCamiseta" type="number" min="1" max="100" inputmode="numeric"></div>
+          <div class="campo"><label for="wPaqLargo">Largo del paquete (cm)</label><input id="wPaqLargo" data-w="paqueteLargo" type="number" min="10" max="200" inputmode="numeric"></div>
+          <div class="campo"><label for="wPaqAncho">Ancho del paquete (cm)</label><input id="wPaqAncho" data-w="paqueteAncho" type="number" min="10" max="200" inputmode="numeric"></div>
+        </div>
+        <div id="wPaqEjemplo" class="ayuda"></div>
         <div id="wEnvios" style="display:grid;gap:12px"></div>
         <div><button class="btn chico" id="wEnvioMas" type="button">+ Agregar transporte</button></div>
       </div></details>
@@ -1309,7 +1316,7 @@ function pintarFormWeb() {
   $("wColores").innerHTML = COLORES.map(([c, n]) => `<button type="button" style="background:${c}" data-color="${c}" aria-label="${n}" title="${n}" aria-pressed="${W.color.toLowerCase() === c}"></button>`).join("") + `<input type="color" id="wColorLibre" value="${esc(W.color)}" aria-label="Otro color">`;
   $("wDatos").innerHTML = DATOS_MENSAJE.map((d) => `<button type="button" data-dato="${d}">{${d}}</button>`).join("");
   $("wHitos").value = (W.hitos || []).join(", ");
-  pintarTramosWeb(); pintarLineasWeb(); pintarReglasWeb(); pintarLogoWeb(); pintarEnviosWeb(); refrescarWeb();
+  pintarTramosWeb(); pintarLineasWeb(); pintarReglasWeb(); pintarLogoWeb(); pintarEnviosWeb(); pintarTarifasFecha(); refrescarWeb();
 }
 $("wHitos").addEventListener("input", (e) => {
   if (!W) return;
@@ -1421,6 +1428,7 @@ function pintarEnviosWeb() {
     const usadas = (j) => new Map(t.zonas.flatMap((z, k) => k === j ? [] : z.provincias.map((p) => [p, z.nombre])));
     return `<div class="fila-edit">
     <div class="dos"><div class="campo"><label for="eN${i}">Transporte</label><input id="eN${i}" data-en="${i}" maxlength="40" value="${esc(t.nombre)}"><span class="ayuda">Con el mismo nombre que en el carrito: «Correo Argentino» o «Vía Cargo».</span></div>
+      <div class="campo"><label for="eV${i}">Divisor del peso volumétrico</label><input id="eV${i}" data-ev="${i}" type="number" min="0" max="10000" inputmode="numeric" value="${t.divisor == null ? 5000 : t.divisor}"><span class="ayuda">Largo × ancho × alto (cm) dividido este número. Suele ser 4000 o 5000: confirmalo con el transporte. 0 = solo el peso real.</span></div>
       <div class="campo"><label for="eK${i}">Columnas de peso: hasta cuántos kg</label><input id="eK${i}" data-ek="${i}" inputmode="numeric" autocomplete="off" value="${t.kilos.join(", ")}" placeholder="2, 5, 10, 20"><span class="ayuda">Separados por coma. Más pesado que la última columna: «a cotizar».</span></div></div>
     ${t.zonas.map((z, j) => { const otras = usadas(j); return `<div class="fila-edit" style="background:transparent">
       <div class="dos"><div class="campo"><label for="eZ${i}_${j}">Zona</label><input id="eZ${i}_${j}" data-ez="${i}:${j}" maxlength="40" value="${esc(z.nombre)}"></div>
@@ -1434,6 +1442,7 @@ function pintarEnviosWeb() {
 $("wEnvios").addEventListener("input", (e) => {
   const d = e.target.dataset;
   if (d.en !== undefined) W.envios[d.en].nombre = e.target.value;
+  else if (d.ev !== undefined) W.envios[d.ev].divisor = Math.max(0, parseInt(e.target.value, 10) || 0);
   else if (d.ez !== undefined) { const [i, j] = d.ez.split(":"); W.envios[i].zonas[j].nombre = e.target.value; }
   else if (d.ed !== undefined) { const [i, j] = d.ed.split(":"); W.envios[i].zonas[j].dias = e.target.value; }
   else if (d.epr !== undefined) { const [i, j, c] = d.epr.split(":"); W.envios[i].zonas[j].precios[c] = parseInt(e.target.value, 10) || 0; }
@@ -1465,8 +1474,27 @@ $("wEnvios").addEventListener("click", (e) => {
 $("wEnvioMas").addEventListener("click", () => {
   if (W.envios.length >= 4) { aviso("Son hasta 4 transportes."); return; }
   const usados = new Set(W.envios.map((t) => t.nombre)), nombre = ["Correo Argentino", "Vía Cargo"].find((n) => !usados.has(n)) || "Transporte " + (W.envios.length + 1);
-  W.envios.push({ nombre, kilos: [2, 5, 10, 20], zonas: [] }); pintarEnviosWeb(); refrescarWeb();
+  W.envios.push({ nombre, divisor: 5000, kilos: [2, 5, 10, 20], zonas: [] }); pintarEnviosWeb(); refrescarWeb();
 });
+/* Las tarifas quedan fijas hasta que alguien las cambia: se anota el día y, a los 60 días, el panel avisa que conviene revisarlas. */
+const hoyISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+function pintarTarifasFecha() {
+  const caja = $("wTarifasFecha"), f = W.enviosActualizados;
+  if (!f) { caja.style.color = ""; caja.textContent = "Las tarifas todavía no se cargaron."; }
+  else {
+    const dias = Math.floor((Date.now() - new Date(f + "T12:00:00").getTime()) / 86400000), [a, m, d] = f.split("-");
+    caja.style.color = dias >= 60 ? "var(--error)" : "";
+    caja.textContent = `Tarifas actualizadas el ${d}/${m}/${a} (hace ${dias} ${dias === 1 ? "día" : "días"}).` + (dias >= 60 ? " Revisá si Correo Argentino o Vía Cargo aumentaron y actualizalas." : "");
+  }
+  const n = 12, alto = Math.max(1, Math.ceil((n * (W.altoPorCamiseta || 15)) / 10)), real = (n * (W.pesoCamiseta || 250)) / 1000, vol = (W.paqueteLargo || 40) * (W.paqueteAncho || 30) * alto;
+  $("wPaqEjemplo").textContent = `Ejemplo: ${n} camisetas → paquete de ${W.paqueteLargo}×${W.paqueteAncho}×${alto} cm, ${real.toLocaleString("es-AR")} kg reales`
+    + (W.envios.length ? `; por volumen ${W.envios.map((t) => `${t.nombre}: ${t.divisor ? (vol / t.divisor).toLocaleString("es-AR", { maximumFractionDigits: 1 }) + " kg" : "no aplica"}`).join(", ")}. Se cobra el mayor.` : ".");
+}
+["input", "change"].forEach((ev) => $("wBloqueEnvios").addEventListener(ev, (e) => {
+  if (!W || !(e.target.matches("input, select"))) return;
+  W.enviosActualizados = hoyISO(); setTimeout(pintarTarifasFecha);
+}));
+$("wBloqueEnvios").addEventListener("click", (e) => { if (W && e.target.closest("button")) { W.enviosActualizados = hoyISO(); setTimeout(pintarTarifasFecha); } });
 /* reglas */
 function pintarReglasWeb() {
   $("wReglas").innerHTML = W.reglas.map((r, i) => `<div class="fila-edit"><div class="dos"><div class="campo"><label for="rE${i}">Etiqueta</label><input id="rE${i}" data-re="${i}" maxlength="30" value="${esc(r.etiqueta)}"></div>

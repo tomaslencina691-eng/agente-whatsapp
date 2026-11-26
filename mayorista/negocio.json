@@ -20,6 +20,7 @@
   "envios": [
     {
       "nombre": "Correo Argentino",
+      "divisor": 5000,
       "kilos": [
         2,
         5,
@@ -133,6 +134,7 @@
     },
     {
       "nombre": "Vía Cargo",
+      "divisor": 5000,
       "kilos": [
         2,
         5,
@@ -245,6 +247,9 @@
       ]
     }
   ],
+  "paqueteLargo": 40,
+  "paqueteAncho": 30,
+  "altoPorCamiseta": 15,
   "topeTalle": 40,
   "hitos": [
     50,

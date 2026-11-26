@@ -91,6 +91,8 @@ class TransporteEnvio(BaseModel):
     """La tabla de tarifas de un transporte (Correo Argentino, Vía Cargo): columnas «hasta X kg» y zonas."""
 
     nombre: str = Field(min_length=1, max_length=40)
+    # Peso volumétrico = largo × ancho × alto (cm) / divisor; se cobra el mayor entre el real y ese. 0 = solo el real.
+    divisor: int = Field(default=5000, ge=0, le=10000)
     kilos: list[int] = Field(default=[], max_length=8)
     zonas: list[ZonaEnvio] = Field(default=[], max_length=12)
 
@@ -136,6 +138,12 @@ class AjustesWeb(BaseModel):
     # Envío aproximado en el carrito: peso de una camiseta embalada (gramos) y la tabla de cada transporte.
     pesoCamiseta: int = Field(default=250, ge=50, le=3000)
     envios: list[TransporteEnvio] = Field(default_factory=list, max_length=4)
+    # El paquete: la base (cm) y cuánto suma de alto cada camiseta apilada (mm). Con eso sale el peso volumétrico.
+    paqueteLargo: int = Field(default=40, ge=10, le=200)
+    paqueteAncho: int = Field(default=30, ge=10, le=200)
+    altoPorCamiseta: int = Field(default=15, ge=1, le=100)
+    # Cuándo se tocaron las tarifas por última vez (el panel avisa cuando pasan 60 días).
+    enviosActualizados: str = Field(default="", pattern=r"^(\d{4}-\d{2}-\d{2})?$")
     # Pedido parejo: un mismo talle no puede ser más que este % de su línea (0 = sin tope). Ver precios.py.
     topeTalle: int = Field(default=0, ge=0, le=100)
     # Las metas de la barra de cada línea después de su mejor precio (pedidos grandes: 50, 100, 200).
@@ -263,6 +271,7 @@ def por_defecto(negocio: dict, marca: str, whatsapp: str, tienda_url: str, limit
         "envios": [
             {
                 "nombre": str(t["nombre"]),
+                "divisor": int(t.get("divisor", 5000)),
                 "kilos": [int(k) for k in t.get("kilos") or []],
                 "zonas": [
                     {"nombre": str(z["nombre"]), "provincias": list(z.get("provincias") or []), "dias": str(z.get("dias") or ""),
@@ -272,6 +281,10 @@ def por_defecto(negocio: dict, marca: str, whatsapp: str, tienda_url: str, limit
             }
             for t in negocio.get("envios") or []
         ],
+        "paqueteLargo": int(negocio.get("paqueteLargo") or 40),
+        "paqueteAncho": int(negocio.get("paqueteAncho") or 30),
+        "altoPorCamiseta": int(negocio.get("altoPorCamiseta") or 15),
+        "enviosActualizados": str(negocio.get("enviosActualizados") or ""),
         "topeTalle": int(negocio.get("topeTalle") or 0),
         "hitos": sorted({int(h) for h in negocio.get("hitos") or [] if int(h) > 0}),
         "pausa": False,

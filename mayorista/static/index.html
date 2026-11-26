@@ -382,7 +382,7 @@ body.en-obra { overflow: hidden; }
 
 <script>
 /* La configuración y los productos vienen del servidor (/api/catalogo). */
-let CFG = { tramos: [], lineas: [], minimo: 6, topeTalle: 0, hitos: [], variantesSueltas: [], pesoCamiseta: 250, envios: [], provincias: [], aliasPago: "", titularPago: "", cuentaPago: "", limitarStock: true, mostrarUnidades: true, whatsapp: "", marca: "", filtroVersion: true, mensaje: "", pausa: false, pedirEnvio: true, pago: "" };
+let CFG = { tramos: [], lineas: [], minimo: 6, topeTalle: 0, hitos: [], variantesSueltas: [], pesoCamiseta: 250, paquete: { largo: 40, ancho: 30, altoMm: 15 }, envios: [], provincias: [], aliasPago: "", titularPago: "", cuentaPago: "", limitarStock: true, mostrarUnidades: true, whatsapp: "", marca: "", filtroVersion: true, mensaje: "", pausa: false, pedirEnvio: true, pago: "" };
 let CATS = [["todas", "Todas"]];
 const VERS = [["todas", "Todas"], ["jugador", "Versión jugador"], ["fan", "Versión fan"]];
 let NOMBRE_CAT = {};
@@ -754,7 +754,15 @@ function pintarPedido() {
   pintarEnvio(); actualizarLink();
 }
 /* Envío aproximado: la tabla de cada transporte (se carga en el panel) por zona de provincias y por peso.
-   Peso = camisetas × peso de una camiseta embalada; se toma la primera columna «hasta X kg» que alcanza. */
+   El paquete: las camisetas apiladas en una base de largo × ancho; se cobra el mayor entre el peso real
+   (camisetas × peso de una embalada) y el volumétrico (largo × ancho × alto / divisor del transporte).
+   Se toma la primera columna «hasta X kg» que alcanza. */
+function paqueteDe(n) {
+  const alto = Math.max(1, Math.ceil((n * CFG.paquete.altoMm) / 10));
+  return { largo: CFG.paquete.largo, ancho: CFG.paquete.ancho, alto, real: (n * CFG.pesoCamiseta) / 1000 };
+}
+const kgACobrar = (pq, t) => Math.max(pq.real, t.divisor ? (pq.largo * pq.ancho * pq.alto) / t.divisor : 0);
+const kgTexto = (kg) => kg.toLocaleString("es-AR", { maximumFractionDigits: 1 });
 const CP_PROVINCIA = [[1000, 1499, "CABA"], [1600, 1999, "Buenos Aires"], [2000, 2399, "Santa Fe"], [3000, 3099, "Santa Fe"], [3100, 3299, "Entre Ríos"],
   [3300, 3399, "Misiones"], [3400, 3499, "Corrientes"], [3600, 3699, "Formosa"], [3700, 3799, "Chaco"], [4000, 4199, "Tucumán"], [4200, 4399, "Santiago del Estero"],
   [4400, 4599, "Salta"], [4600, 4699, "Jujuy"], [4700, 4799, "Catamarca"], [5000, 5299, "Córdoba"], [5300, 5399, "La Rioja"], [5400, 5499, "San Juan"],
@@ -766,10 +774,10 @@ function provinciaDelCp(cp) {
 }
 function estimarEnvio(prov, n) {
   if (!prov || !n) return [];
-  const kg = (n * CFG.pesoCamiseta) / 1000;
+  const pq = paqueteDe(n);
   return CFG.envios.map((t) => {
-    const z = t.zonas.find((x) => x.provincias.includes(prov)), i = t.kilos.findIndex((k) => kg <= k);
-    return { nombre: t.nombre, precio: z && i >= 0 ? z.precios[i] || null : null, dias: z ? z.dias : "" };
+    const kg = kgACobrar(pq, t), z = t.zonas.find((x) => x.provincias.includes(prov)), i = t.kilos.findIndex((k) => kg <= k);
+    return { nombre: t.nombre, precio: z && i >= 0 ? z.precios[i] || null : null, dias: z ? z.dias : "", kg };
   });
 }
 function pintarEnvio() {
@@ -777,8 +785,8 @@ function pintarEnvio() {
   if (!CFG.envios.length) { caja.hidden = true; return; }
   const d = datos(), n = total(); caja.hidden = false;
   if (!d.provincia) { caja.innerHTML = "<small>Elegí tu provincia (o escribí el código postal) y te mostramos cuánto sale el envío, aproximado.</small>"; return; }
-  const kg = (n * CFG.pesoCamiseta) / 1000;
-  caja.innerHTML = `<b>Envío aproximado a ${esc(d.provincia)}</b><small>${n} ${n === 1 ? "camiseta" : "camisetas"} ≈ ${kg.toLocaleString("es-AR", { maximumFractionDigits: 1 })} kg</small>`
+  const pq = paqueteDe(n);
+  caja.innerHTML = `<b>Envío aproximado a ${esc(d.provincia)}</b><small>${n} ${n === 1 ? "camiseta" : "camisetas"} · paquete aprox. ${pq.largo}×${pq.ancho}×${pq.alto} cm · ${kgTexto(pq.real)} kg</small>`
     + estimarEnvio(d.provincia, n).map((e) => `<div class="t ${d.transporte === e.nombre ? "elegido" : ""}"><span>${esc(e.nombre)}${e.dias ? ` · ${esc(e.dias)}` : ""}</span><span>${e.precio ? peso(e.precio) : "a cotizar"}</span></div>`).join("")
     + "<small>Es un estimado: el costo final del envío te lo confirma el equipo al despachar.</small>";
 }
@@ -910,7 +918,7 @@ async function cargar() {
     if (!r.ok) throw new Error(r.status);
     const d = await r.json();
     if (d.mantenimiento) { mostrarObra(d); $("estado").hidden = true; return; }
-    CFG = { tramos: d.tramos, lineas: d.lineas || [], minimo: d.minimo, topeTalle: d.topeTalle || 0, hitos: d.hitos || [], variantesSueltas: d.variantesSueltas || [], pesoCamiseta: d.pesoCamiseta || 250, envios: d.envios || [], provincias: d.provincias || [], aliasPago: d.aliasPago || "", titularPago: d.titularPago || "", cuentaPago: d.cuentaPago || "", limitarStock: d.limitarStock, mostrarUnidades: d.mostrarUnidades !== false, whatsapp: d.whatsapp, marca: d.marca || "", filtroVersion: d.filtroVersion !== false, mensaje: d.mensaje || "{pedido}", pausa: !!d.pausa, pedirEnvio: d.pedirEnvio !== false, pago: d.pago || "" };
+    CFG = { tramos: d.tramos, lineas: d.lineas || [], minimo: d.minimo, topeTalle: d.topeTalle || 0, hitos: d.hitos || [], variantesSueltas: d.variantesSueltas || [], pesoCamiseta: d.pesoCamiseta || 250, paquete: d.paquete || { largo: 40, ancho: 30, altoMm: 15 }, envios: d.envios || [], provincias: d.provincias || [], aliasPago: d.aliasPago || "", titularPago: d.titularPago || "", cuentaPago: d.cuentaPago || "", limitarStock: d.limitarStock, mostrarUnidades: d.mostrarUnidades !== false, whatsapp: d.whatsapp, marca: d.marca || "", filtroVersion: d.filtroVersion !== false, mensaje: d.mensaje || "{pedido}", pausa: !!d.pausa, pedirEnvio: d.pedirEnvio !== false, pago: d.pago || "" };
     aplicarNegocio(d);
     PRODUCTOS = d.productos; porId = new Map(PRODUCTOS.map((p) => [p.id, p]));
     $("waDirecto").href = `https://wa.me/${CFG.whatsapp}`;
