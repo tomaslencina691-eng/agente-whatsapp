@@ -350,7 +350,7 @@ def filas_iniciales(productos: list[dict]) -> list[tuple[int, str, int]]:
 
 ETIQUETAS_DE_AJUSTES = {
     "marca": "nombre", "bandaIzq": "banda", "bandaDer": "banda", "titulo": "título", "bajada": "texto de portada", "color": "color",
-    "whatsapp": "WhatsApp", "whatsappAlterno": "WhatsApp alternativo", "pedirEnvio": "datos de envío", "pago": "cómo pagar", "aliasPago": "alias", "titularPago": "titular de la cuenta", "cuentaPago": "cuenta", "mensaje": "mensaje del pedido", "minimo": "pedido mínimo", "tramos": "precios", "lineas": "precios por línea", "topeTalle": "tope por talle", "variantesSueltas": "con dorsal sin mínimo", "categoriaDorsal": "categoría con dorsal", "sinonimosCalidad": "calidades de Tiendanube", "hitos": "metas de la barra", "pausa": "pausa de pedidos", "mantenimiento": "página en construcción", "mensajeMantenimiento": "cartel de construcción",
+    "whatsapp": "WhatsApp", "whatsappAlterno": "WhatsApp alternativo", "pedirEnvio": "datos de envío", "pago": "cómo pagar", "aliasPago": "alias", "titularPago": "titular de la cuenta", "cuentaPago": "cuenta", "mensaje": "mensaje del pedido", "minimo": "pedido mínimo", "tramos": "precios", "lineas": "precios por línea", "topeTalle": "tope por talle", "variantesSueltas": "con dorsal sin mínimo", "pesoCamiseta": "peso por camiseta", "envios": "tarifas de envío", "categoriaDorsal": "categoría con dorsal", "sinonimosCalidad": "calidades de Tiendanube", "hitos": "metas de la barra", "pausa": "pausa de pedidos", "mantenimiento": "página en construcción", "mensajeMantenimiento": "cartel de construcción",
     "aviso": "aviso", "limitarStock": "límite de stock", "filtroVersion": "filtro de versión", "mostrarUnidades": "unidades que quedan",
     "ocultarPrecios": "precios ocultos", "orden": "orden", "reglas": "reglas", "condiciones": "condiciones", "cierre": "cierre", "pie": "pie",
     "horario": "horario", "instagram": "Instagram", "tiendaUrl": "enlace a la tienda", "seoTitulo": "título en Google", "seoDescripcion": "descripción en Google",
@@ -1008,7 +1008,8 @@ def crear_router(
         """Los ajustes de la web como están ahora (lo guardado sobre lo de siempre) y lo de siempre, para poder volver."""
         guardado = almacen_.config("logo") or {}
         categorias = [{"id": c["id"], "nombre": c["nombre"]} for c in _categorias_actuales()]
-        return {"ajustes": _web_actual(), "porDefecto": web_defecto() if web_defecto else {}, "logo": bool(guardado.get("datos")), "categorias": categorias}
+        return {"ajustes": _web_actual(), "porDefecto": web_defecto() if web_defecto else {}, "logo": bool(guardado.get("datos")), "categorias": categorias,
+                "provincias": list(ajustes.PROVINCIAS)}
 
     @router.put("/web")
     def web_guardar(datos: ajustes.AjustesWeb, usuario: str = Depends(usuario_actual)) -> dict:

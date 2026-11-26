@@ -577,6 +577,10 @@ def api_catalogo(response: Response) -> dict:
         "topeTalle": w["topeTalle"],
         "variantesSueltas": w["variantesSueltas"],
         "hitos": sorted(w["hitos"]),
+        # El envío aproximado del carrito: solo los transportes que tienen algún precio cargado.
+        "pesoCamiseta": w["pesoCamiseta"],
+        "envios": [t for t in w["envios"] if any(any(z["precios"]) for z in t["zonas"])],
+        "provincias": list(ajustes.PROVINCIAS),
         "limitarStock": w["limitarStock"],
         "mostrarUnidades": w["mostrarUnidades"],
         "whatsapp": w["whatsapp"],

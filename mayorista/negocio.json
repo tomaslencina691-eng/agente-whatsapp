@@ -16,6 +16,235 @@
   "variantesSueltas": [
     "top_pers"
   ],
+  "pesoCamiseta": 250,
+  "envios": [
+    {
+      "nombre": "Correo Argentino",
+      "kilos": [
+        2,
+        5,
+        10,
+        15,
+        20,
+        30,
+        50
+      ],
+      "zonas": [
+        {
+          "nombre": "Córdoba",
+          "provincias": [
+            "Córdoba"
+          ],
+          "dias": "",
+          "precios": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "nombre": "Centro",
+          "provincias": [
+            "Buenos Aires",
+            "CABA",
+            "Santa Fe",
+            "Entre Ríos",
+            "La Pampa",
+            "San Luis",
+            "Santiago del Estero"
+          ],
+          "dias": "",
+          "precios": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "nombre": "Norte",
+          "provincias": [
+            "Catamarca",
+            "Chaco",
+            "Corrientes",
+            "Formosa",
+            "Jujuy",
+            "La Rioja",
+            "Misiones",
+            "Salta",
+            "Tucumán"
+          ],
+          "dias": "",
+          "precios": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "nombre": "Cuyo",
+          "provincias": [
+            "Mendoza",
+            "San Juan"
+          ],
+          "dias": "",
+          "precios": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "nombre": "Patagonia",
+          "provincias": [
+            "Chubut",
+            "Neuquén",
+            "Río Negro",
+            "Santa Cruz",
+            "Tierra del Fuego"
+          ],
+          "dias": "",
+          "precios": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "nombre": "Vía Cargo",
+      "kilos": [
+        2,
+        5,
+        10,
+        15,
+        20,
+        30,
+        50
+      ],
+      "zonas": [
+        {
+          "nombre": "Córdoba",
+          "provincias": [
+            "Córdoba"
+          ],
+          "dias": "",
+          "precios": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "nombre": "Centro",
+          "provincias": [
+            "Buenos Aires",
+            "CABA",
+            "Santa Fe",
+            "Entre Ríos",
+            "La Pampa",
+            "San Luis",
+            "Santiago del Estero"
+          ],
+          "dias": "",
+          "precios": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "nombre": "Norte",
+          "provincias": [
+            "Catamarca",
+            "Chaco",
+            "Corrientes",
+            "Formosa",
+            "Jujuy",
+            "La Rioja",
+            "Misiones",
+            "Salta",
+            "Tucumán"
+          ],
+          "dias": "",
+          "precios": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "nombre": "Cuyo",
+          "provincias": [
+            "Mendoza",
+            "San Juan"
+          ],
+          "dias": "",
+          "precios": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "nombre": "Patagonia",
+          "provincias": [
+            "Chubut",
+            "Neuquén",
+            "Río Negro",
+            "Santa Cruz",
+            "Tierra del Fuego"
+          ],
+          "dias": "",
+          "precios": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ]
+    }
+  ],
   "topeTalle": 40,
   "hitos": [
     50,

@@ -70,6 +70,31 @@ class Linea(BaseModel):
     personalizadaDe: str = Field(default="", max_length=20)
 
 
+# Las 24 jurisdicciones: el carrito las ofrece para elegir y las zonas de envío las agrupan.
+PROVINCIAS = (
+    "Buenos Aires", "CABA", "Catamarca", "Chaco", "Chubut", "Córdoba", "Corrientes", "Entre Ríos",
+    "Formosa", "Jujuy", "La Pampa", "La Rioja", "Mendoza", "Misiones", "Neuquén", "Río Negro", "Salta",
+    "San Juan", "San Luis", "Santa Cruz", "Santa Fe", "Santiago del Estero", "Tierra del Fuego", "Tucumán",
+)
+
+
+class ZonaEnvio(BaseModel):
+    """Un grupo de provincias con su precio de envío por peso (un precio por cada columna de kilos del transporte)."""
+
+    nombre: str = Field(min_length=1, max_length=40)
+    provincias: list[str] = Field(default=[], max_length=24)
+    dias: str = Field(default="", max_length=40)
+    precios: list[int] = Field(default=[], max_length=8)  # 0 = sin precio en ese peso: «a cotizar»
+
+
+class TransporteEnvio(BaseModel):
+    """La tabla de tarifas de un transporte (Correo Argentino, Vía Cargo): columnas «hasta X kg» y zonas."""
+
+    nombre: str = Field(min_length=1, max_length=40)
+    kilos: list[int] = Field(default=[], max_length=8)
+    zonas: list[ZonaEnvio] = Field(default=[], max_length=12)
+
+
 class Regla(BaseModel):
     etiqueta: str = Field(default="", max_length=30)
     titulo: str = Field(default="", max_length=60)
@@ -108,6 +133,9 @@ class AjustesWeb(BaseModel):
     # Variantes «con parche y número» que van sin mínimo cuando su línea base llega a su mínimo
     # (con 6 lisas de Top Quality, de 1 a 11 con dorsal al precio de la primera escala). Ver precios.py.
     variantesSueltas: list[str] = Field(default_factory=list, max_length=8)
+    # Envío aproximado en el carrito: peso de una camiseta embalada (gramos) y la tabla de cada transporte.
+    pesoCamiseta: int = Field(default=250, ge=50, le=3000)
+    envios: list[TransporteEnvio] = Field(default_factory=list, max_length=4)
     # Pedido parejo: un mismo talle no puede ser más que este % de su línea (0 = sin tope). Ver precios.py.
     topeTalle: int = Field(default=0, ge=0, le=100)
     # Las metas de la barra de cada línea después de su mejor precio (pedidos grandes: 50, 100, 200).
@@ -165,6 +193,24 @@ def problemas(a: AjustesWeb) -> list[str]:
     variantes_ids = {l.id for l in a.lineas if l.personalizadaDe}
     if any(v not in variantes_ids for v in a.variantesSueltas):
         malos.append("Las variantes sin mínimo tienen que ser líneas «con parche y número» que existan.")
+    for t in a.envios:
+        if any(k < 1 or k > 1000 for k in t.kilos) or t.kilos != sorted(set(t.kilos)):
+            malos.append(f"Envíos por {t.nombre}: los kilos tienen que ir de menor a mayor, sin repetir, de 1 a 1000.")
+        vistas: dict[str, str] = {}
+        for z in t.zonas:
+            if len(z.precios) != len(t.kilos):
+                malos.append(f"Envíos por {t.nombre}, zona «{z.nombre}»: tiene que haber un precio por cada columna de kilos.")
+            if any(p < 0 or p > 10_000_000 for p in z.precios):
+                malos.append(f"Envíos por {t.nombre}, zona «{z.nombre}»: hay un precio fuera de rango.")
+            for prov in z.provincias:
+                if prov not in PROVINCIAS:
+                    malos.append(f"Envíos por {t.nombre}: «{prov}» no es una provincia.")
+                elif prov in vistas:
+                    malos.append(f"Envíos por {t.nombre}: {prov} está en dos zonas («{vistas[prov]}» y «{z.nombre}»).")
+                else:
+                    vistas[prov] = z.nombre
+    if len({t.nombre for t in a.envios}) != len(a.envios):
+        malos.append("Hay dos tablas de envío con el mismo transporte.")
     if a.topeTalle and a.topeTalle < 20:
         malos.append("El tope por talle no puede ser menor que 20 %: con 5 talles, ni un pedido repartido parejo entraría.")
     if any(h < 1 or h > 100_000 for h in a.hitos) or len(set(a.hitos)) != len(a.hitos):
@@ -213,6 +259,19 @@ def por_defecto(negocio: dict, marca: str, whatsapp: str, tienda_url: str, limit
         "categoriaDorsal": str(negocio.get("categoriaDorsal") or ""),
         "sinonimosCalidad": {str(k): str(v) for k, v in (negocio.get("sinonimosCalidad") or {}).items()},
         "variantesSueltas": [str(v) for v in negocio.get("variantesSueltas") or []],
+        "pesoCamiseta": int(negocio.get("pesoCamiseta") or 250),
+        "envios": [
+            {
+                "nombre": str(t["nombre"]),
+                "kilos": [int(k) for k in t.get("kilos") or []],
+                "zonas": [
+                    {"nombre": str(z["nombre"]), "provincias": list(z.get("provincias") or []), "dias": str(z.get("dias") or ""),
+                     "precios": [int(p) for p in z.get("precios") or []]}
+                    for z in t.get("zonas") or []
+                ],
+            }
+            for t in negocio.get("envios") or []
+        ],
         "topeTalle": int(negocio.get("topeTalle") or 0),
         "hitos": sorted({int(h) for h in negocio.get("hitos") or [] if int(h) > 0}),
         "pausa": False,

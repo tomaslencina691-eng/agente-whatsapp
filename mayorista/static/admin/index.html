@@ -162,6 +162,7 @@ tr.sin-stock .nombre { color: var(--suave); }
 .talle-nuevo input { width: 66px; text-align: center; background: var(--noche); border: 1.5px solid var(--linea); border-radius: 8px; padding: 8px 4px; min-height: 40px; }
 .categorias { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px 12px; max-height: 190px; overflow: auto; }
 .categorias label { display: flex; gap: 8px; align-items: center; min-height: 30px; }
+.campo .categorias input[type="checkbox"] { width: 18px; height: 18px; min-height: 0; padding: 0; flex: none; }
 .previas { display: flex; gap: 10px; flex-wrap: wrap; }
 .previas figure { margin: 0; position: relative; }
 .previas img { width: 88px; height: 88px; object-fit: cover; border-radius: 8px; border: 1px solid var(--linea); }
@@ -451,6 +452,13 @@ details.np-mas .cuerpo { display: grid; gap: 12px; padding-top: 12px; }
         <div class="campo"><label for="wMensajeMantenimiento">Texto del cartel de construcción</label><textarea id="wMensajeMantenimiento" data-w="mensajeMantenimiento" rows="2" maxlength="300"></textarea></div>
         <label class="opcion"><input type="checkbox" id="wPausa" data-w="pausa"><span><b>Pausar los pedidos</b><small>El catálogo se sigue viendo, pero no se puede enviar el pedido.</small></span></label>
         <div class="campo"><label for="wAviso">Aviso arriba de la web</label><input id="wAviso" data-w="aviso" maxlength="160" placeholder="Ej: Cerrado por balance hasta el lunes 24"><span class="ayuda">Si lo dejás vacío, no se muestra.</span></div>
+      </div></details>
+
+      <details class="bloque"><summary>Envíos aproximados</summary><div class="cuerpo">
+        <p class="ayuda">En el carrito, cuando el cliente elige su provincia (o escribe el código postal), ve cuánto sale el envío por cada transporte, aproximado. El peso del pedido es la cantidad de camisetas por el peso de una camiseta embalada; se usa la primera columna «hasta X kg» que alcanza. Un precio en 0 se muestra «a cotizar». Un transporte sin ningún precio cargado no se muestra.</p>
+        <div class="campo" style="max-width:320px"><label for="wPesoCamiseta">Peso de una camiseta embalada (gramos)</label><input id="wPesoCamiseta" data-w="pesoCamiseta" type="number" min="50" max="3000" inputmode="numeric"></div>
+        <div id="wEnvios" style="display:grid;gap:12px"></div>
+        <div><button class="btn chico" id="wEnvioMas" type="button">+ Agregar transporte</button></div>
       </div></details>
 
       <details class="bloque"><summary>Catálogo</summary><div class="cuerpo">
@@ -1270,7 +1278,7 @@ $("btnGuardarFiltros").addEventListener("click", async () => {
 });
 
 /* ---------- web mayorista ---------- */
-let W = null, WBASE = "", webPorDefecto = null, webCategorias = [];
+let W = null, WBASE = "", webPorDefecto = null, webCategorias = [], webProvincias = [];
 function renderMensaje(plantilla, v) {
   const lineas = plantilla.split("\n").filter((l) => { const ph = l.match(/\{[a-z]+\}/g); return !ph || ph.some((p) => String(v[p.slice(1, -1)] == null ? "" : v[p.slice(1, -1)]).trim() !== ""); });
   return lineas.map((l) => l.replace(/\{([a-z]+)\}/g, (_, k) => (v[k] == null ? "" : v[k]))).join("\n").replace(/\n{3,}/g, "\n\n").trim();
@@ -1293,7 +1301,7 @@ async function cargarRevisionPrecios() {
 }
 async function cargarWeb() {
   $("msgWeb").textContent = "";
-  try { const d = await api("/web"); W = d.ajustes; W.lineas = W.lineas || []; webPorDefecto = d.porDefecto; webCategorias = d.categorias || []; WBASE = firmaWeb(); pintarFormWeb(); cargarRevisionPrecios(); }
+  try { const d = await api("/web"); W = d.ajustes; W.lineas = W.lineas || []; webPorDefecto = d.porDefecto; webCategorias = d.categorias || []; webProvincias = d.provincias || []; W.envios = W.envios || []; WBASE = firmaWeb(); pintarFormWeb(); cargarRevisionPrecios(); }
   catch (e) { $("msgWeb").className = "mensaje"; $("msgWeb").textContent = "No se pudo cargar: " + e.message; }
 }
 function pintarFormWeb() {
@@ -1301,7 +1309,7 @@ function pintarFormWeb() {
   $("wColores").innerHTML = COLORES.map(([c, n]) => `<button type="button" style="background:${c}" data-color="${c}" aria-label="${n}" title="${n}" aria-pressed="${W.color.toLowerCase() === c}"></button>`).join("") + `<input type="color" id="wColorLibre" value="${esc(W.color)}" aria-label="Otro color">`;
   $("wDatos").innerHTML = DATOS_MENSAJE.map((d) => `<button type="button" data-dato="${d}">{${d}}</button>`).join("");
   $("wHitos").value = (W.hitos || []).join(", ");
-  pintarTramosWeb(); pintarLineasWeb(); pintarReglasWeb(); pintarLogoWeb(); refrescarWeb();
+  pintarTramosWeb(); pintarLineasWeb(); pintarReglasWeb(); pintarLogoWeb(); pintarEnviosWeb(); refrescarWeb();
 }
 $("wHitos").addEventListener("input", (e) => {
   if (!W) return;
@@ -1406,6 +1414,58 @@ $("wLineas").addEventListener("click", (e) => {
 $("wLineaMas").addEventListener("click", () => {
   if (W.lineas.length >= 8) { aviso("Son hasta 8 líneas."); return; }
   W.lineas.push({ id: "l" + Date.now().toString(36).slice(-7), nombre: "", cats: [], personalizadaDe: "", minimo: W.minimo || 6, tramos: [] }); pintarLineasWeb(); refrescarWeb();
+});
+/* envíos aproximados: por transporte, columnas «hasta X kg» y zonas de provincias con un precio por columna */
+function pintarEnviosWeb() {
+  $("wEnvios").innerHTML = W.envios.map((t, i) => {
+    const usadas = (j) => new Map(t.zonas.flatMap((z, k) => k === j ? [] : z.provincias.map((p) => [p, z.nombre])));
+    return `<div class="fila-edit">
+    <div class="dos"><div class="campo"><label for="eN${i}">Transporte</label><input id="eN${i}" data-en="${i}" maxlength="40" value="${esc(t.nombre)}"><span class="ayuda">Con el mismo nombre que en el carrito: «Correo Argentino» o «Vía Cargo».</span></div>
+      <div class="campo"><label for="eK${i}">Columnas de peso: hasta cuántos kg</label><input id="eK${i}" data-ek="${i}" inputmode="numeric" autocomplete="off" value="${t.kilos.join(", ")}" placeholder="2, 5, 10, 20"><span class="ayuda">Separados por coma. Más pesado que la última columna: «a cotizar».</span></div></div>
+    ${t.zonas.map((z, j) => { const otras = usadas(j); return `<div class="fila-edit" style="background:transparent">
+      <div class="dos"><div class="campo"><label for="eZ${i}_${j}">Zona</label><input id="eZ${i}_${j}" data-ez="${i}:${j}" maxlength="40" value="${esc(z.nombre)}"></div>
+        <div class="campo"><label for="eD${i}_${j}">Demora (opcional)</label><input id="eD${i}_${j}" data-ed="${i}:${j}" maxlength="40" value="${esc(z.dias)}" placeholder="3 a 5 días hábiles"></div></div>
+      <div class="campo"><label>Provincias</label><div class="categorias">${webProvincias.map((p) => `<label${otras.has(p) ? ` title="Está en ${esc(otras.get(p))}" style="opacity:.45"` : ""}><input type="checkbox" data-ep="${i}:${j}" value="${esc(p)}" ${z.provincias.includes(p) ? "checked" : ""} ${otras.has(p) ? "disabled" : ""}> ${esc(p)}</label>`).join("")}</div></div>
+      <div class="campo"><label>Precio del envío ($, 0 = a cotizar)</label><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px">${t.kilos.map((k, c) => `<div class="campo"><label for="eP${i}_${j}_${c}">hasta ${k} kg</label><input id="eP${i}_${j}_${c}" type="number" min="0" inputmode="numeric" data-epr="${i}:${j}:${c}" value="${z.precios[c] || 0}"></div>`).join("") || '<span class="ayuda">Cargá primero las columnas de peso.</span>'}</div></div>
+      <div><button class="btn chico" data-ezq="${i}:${j}" type="button">Quitar zona</button></div></div>`; }).join("")}
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn chico" data-ezm="${i}" type="button">+ Agregar zona</button><button class="btn chico" data-eq="${i}" type="button">Quitar transporte</button></div></div>`;
+  }).join("") || '<p class="ayuda">Sin tablas: el carrito no muestra el envío aproximado.</p>';
+}
+$("wEnvios").addEventListener("input", (e) => {
+  const d = e.target.dataset;
+  if (d.en !== undefined) W.envios[d.en].nombre = e.target.value;
+  else if (d.ez !== undefined) { const [i, j] = d.ez.split(":"); W.envios[i].zonas[j].nombre = e.target.value; }
+  else if (d.ed !== undefined) { const [i, j] = d.ed.split(":"); W.envios[i].zonas[j].dias = e.target.value; }
+  else if (d.epr !== undefined) { const [i, j, c] = d.epr.split(":"); W.envios[i].zonas[j].precios[c] = parseInt(e.target.value, 10) || 0; }
+  else return;
+  refrescarWeb();
+});
+$("wEnvios").addEventListener("change", (e) => {
+  const d = e.target.dataset;
+  if (d.ek !== undefined) {
+    const t = W.envios[d.ek], kilos = [...new Set(e.target.value.split(/[^\d]+/).filter(Boolean).map((x) => parseInt(x, 10)).filter((x) => x > 0 && x <= 1000))].sort((a, b) => a - b).slice(0, 8);
+    /* Cada precio sigue con su columna de kilos; una columna nueva arranca en 0. */
+    t.zonas.forEach((z) => { const viejo = new Map(t.kilos.map((k, c) => [k, z.precios[c] || 0])); z.precios = kilos.map((k) => viejo.get(k) || 0); });
+    t.kilos = kilos;
+  } else if (d.ep !== undefined) {
+    const [i, j] = d.ep.split(":"), z = W.envios[i].zonas[j], ps = new Set(z.provincias);
+    if (e.target.checked) ps.add(e.target.value); else ps.delete(e.target.value);
+    z.provincias = webProvincias.filter((p) => ps.has(p));
+  } else return;
+  pintarEnviosWeb(); refrescarWeb();
+});
+$("wEnvios").addEventListener("click", (e) => {
+  const q = e.target.closest("[data-eq]"), zm = e.target.closest("[data-ezm]"), zq = e.target.closest("[data-ezq]");
+  if (q) W.envios.splice(Number(q.dataset.eq), 1);
+  else if (zm) { const t = W.envios[Number(zm.dataset.ezm)]; if (t.zonas.length >= 12) { aviso("Son hasta 12 zonas por transporte."); return; } t.zonas.push({ nombre: "Zona " + (t.zonas.length + 1), provincias: [], dias: "", precios: t.kilos.map(() => 0) }); }
+  else if (zq) { const [i, j] = zq.dataset.ezq.split(":"); W.envios[i].zonas.splice(Number(j), 1); }
+  else return;
+  pintarEnviosWeb(); refrescarWeb();
+});
+$("wEnvioMas").addEventListener("click", () => {
+  if (W.envios.length >= 4) { aviso("Son hasta 4 transportes."); return; }
+  const usados = new Set(W.envios.map((t) => t.nombre)), nombre = ["Correo Argentino", "Vía Cargo"].find((n) => !usados.has(n)) || "Transporte " + (W.envios.length + 1);
+  W.envios.push({ nombre, kilos: [2, 5, 10, 20], zonas: [] }); pintarEnviosWeb(); refrescarWeb();
 });
 /* reglas */
 function pintarReglasWeb() {

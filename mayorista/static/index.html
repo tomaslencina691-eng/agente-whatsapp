@@ -241,6 +241,10 @@ body.en-obra { overflow: hidden; }
 .resumen-ped div { display: flex; justify-content: space-between; gap: 12px; }
 .resumen-ped span { color: var(--gris); }
 .pago-ped { border: 1.5px dashed color-mix(in srgb, var(--verde) 60%, transparent); border-radius: var(--radio); padding: 12px 14px; font-size: 14px; background: var(--negro-3); }
+.envio-est { display: grid; gap: 4px; border: 1px dashed var(--linea, #333); border-radius: var(--radio); padding: 10px 14px; font-size: 14px; }
+.envio-est .t { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.envio-est .t.elegido { font-weight: 700; }
+.envio-est small { opacity: .75; }
 .transferir { display: grid; gap: 6px; border: 1.5px solid var(--verde); border-radius: var(--radio); padding: 12px 14px; background: var(--verde-suave); font-size: 14px; }
 .transferir > b { color: var(--verde); font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
 .transferir .alias { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
@@ -378,7 +382,7 @@ body.en-obra { overflow: hidden; }
 
 <script>
 /* La configuración y los productos vienen del servidor (/api/catalogo). */
-let CFG = { tramos: [], lineas: [], minimo: 6, topeTalle: 0, hitos: [], variantesSueltas: [], aliasPago: "", titularPago: "", cuentaPago: "", limitarStock: true, mostrarUnidades: true, whatsapp: "", marca: "", filtroVersion: true, mensaje: "", pausa: false, pedirEnvio: true, pago: "" };
+let CFG = { tramos: [], lineas: [], minimo: 6, topeTalle: 0, hitos: [], variantesSueltas: [], pesoCamiseta: 250, envios: [], provincias: [], aliasPago: "", titularPago: "", cuentaPago: "", limitarStock: true, mostrarUnidades: true, whatsapp: "", marca: "", filtroVersion: true, mensaje: "", pausa: false, pedirEnvio: true, pago: "" };
 let CATS = [["todas", "Todas"]];
 const VERS = [["todas", "Todas"], ["jugador", "Versión jugador"], ["fan", "Versión fan"]];
 let NOMBRE_CAT = {};
@@ -652,7 +656,7 @@ function mensaje() {
     cuerpo = grupos().map((g) => `*${g.nombre} · ${g.n} u.${g.precio != null ? ` × ${peso(g.precio)} = ${peso(g.precio * g.n)}` : ""}*\n` + g.ids.map((id) => renglon(id, ++i)).join("\n")).join("\n\n");
   } else cuerpo = Object.keys(pedido).map((id) => renglon(id, ++i)).join("\n");
   /* Los datos para despachar van después del pedido; si el mensaje guardado en el panel no tiene {envio}, se suman igual. */
-  const bloqueEnvio = [d.dni && `DNI: ${d.dni}`, (d.provincia || d.ciudad) && `Provincia / ciudad: ${[d.provincia, d.ciudad].filter(Boolean).join(" / ")}`, d.cp && `Código postal: ${d.cp}`, d.direccion && `Dirección: ${d.direccion}`, d.email && `Correo: ${d.email}`, d.transporte && `Envío por: ${d.transporte}`].filter(Boolean);
+  const bloqueEnvio = [d.dni && `DNI: ${d.dni}`, (d.provincia || d.ciudad) && `Provincia / ciudad: ${[d.provincia, d.ciudad].filter(Boolean).join(" / ")}`, d.cp && `Código postal: ${d.cp}`, d.direccion && `Dirección: ${d.direccion}`, d.email && `Correo: ${d.email}`, d.transporte && `Envío por: ${d.transporte}`, envioElegido(d) && `Envío aproximado: ${peso(envioElegido(d))} (a confirmar)`].filter(Boolean);
   const envio = bloqueEnvio.length ? `*Datos de envío*\n${bloqueEnvio.join("\n")}` : "";
   const plantilla = CFG.mensaje.includes("{envio}") || !envio ? CFG.mensaje : CFG.mensaje.replace("{pedido}", "{pedido}\n\n{envio}");
   return renderMensaje(plantilla, { marca: CFG.marca, codigo: codigoActual(), nombre: d.nombre, negocio: d.negocio, pedido: cuerpo, envio,
@@ -722,11 +726,14 @@ function pintarPedido() {
     ${CFG.pedirEnvio ? `<p class="sub-ped">Datos de envío</p>
     <div class="campo-dos"><div class="campo"><label for="fDni">DNI</label><input id="fDni" inputmode="numeric" autocomplete="off" value="${esc(f.dni)}"></div>
       <div class="campo"><label for="fCp">Código postal</label><input id="fCp" inputmode="numeric" autocomplete="postal-code" value="${esc(f.cp)}"></div></div>
-    <div class="campo-dos"><div class="campo"><label for="fProv">Provincia</label><input id="fProv" autocomplete="address-level1" value="${esc(f.provincia)}"></div>
+    <div class="campo-dos"><div class="campo"><label for="fProv">Provincia</label>${CFG.provincias.length
+      ? `<select id="fProv" autocomplete="address-level1"><option value="">Elegí</option>${[...CFG.provincias, ...(f.provincia && !CFG.provincias.includes(f.provincia) ? [f.provincia] : [])].map((o) => `<option ${f.provincia === o ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`
+      : `<input id="fProv" autocomplete="address-level1" value="${esc(f.provincia)}">`}</div>
       <div class="campo"><label for="fCiudad">Ciudad</label><input id="fCiudad" autocomplete="address-level2" value="${esc(f.ciudad)}"></div></div>
     <div class="campo"><label for="fDir">Dirección (calle y numeración)</label><input id="fDir" autocomplete="street-address" value="${esc(f.direccion)}"></div>
     <div class="campo"><label for="fEmail">Correo electrónico</label><input id="fEmail" type="email" inputmode="email" autocomplete="email" value="${esc(f.email)}"></div>
-    <div class="campo"><label for="fTransp">Enviar por</label><select id="fTransp"><option value="">Elegí una opción</option>${["Vía Cargo", "Correo Argentino"].map((o) => `<option ${f.transporte === o ? "selected" : ""}>${o}</option>`).join("")}</select></div>` : ""}
+    <div class="campo"><label for="fTransp">Enviar por</label><select id="fTransp"><option value="">Elegí una opción</option>${["Vía Cargo", "Correo Argentino"].map((o) => `<option ${f.transporte === o ? "selected" : ""}>${o}</option>`).join("")}</select></div>
+    <div class="envio-est" id="envioEst" aria-live="polite" hidden></div>` : ""}
     <div class="campo"><label for="fNotas">Notas del pedido (opcional)</label><textarea id="fNotas">${esc(f.notas)}</textarea></div>
     ${CFG.aliasPago ? `<div class="transferir"><b>Datos para transferir</b>
       <div class="alias"><span>${esc(CFG.aliasPago)}</span><button type="button" id="copiarAlias">Copiar alias</button></div>
@@ -744,8 +751,38 @@ function pintarPedido() {
     <a class="primario" id="enviarWA" href="#" target="_blank" rel="noopener" aria-disabled="${!puedeEnviar()}">${textoBoton}</a>
     <button class="secundario" id="copiar" type="button">Copiar pedido</button>
     <p class="nota" id="notaCopia">Se abre tu WhatsApp con el pedido escrito.</p>`;
-  actualizarLink();
+  pintarEnvio(); actualizarLink();
 }
+/* Envío aproximado: la tabla de cada transporte (se carga en el panel) por zona de provincias y por peso.
+   Peso = camisetas × peso de una camiseta embalada; se toma la primera columna «hasta X kg» que alcanza. */
+const CP_PROVINCIA = [[1000, 1499, "CABA"], [1600, 1999, "Buenos Aires"], [2000, 2399, "Santa Fe"], [3000, 3099, "Santa Fe"], [3100, 3299, "Entre Ríos"],
+  [3300, 3399, "Misiones"], [3400, 3499, "Corrientes"], [3600, 3699, "Formosa"], [3700, 3799, "Chaco"], [4000, 4199, "Tucumán"], [4200, 4399, "Santiago del Estero"],
+  [4400, 4599, "Salta"], [4600, 4699, "Jujuy"], [4700, 4799, "Catamarca"], [5000, 5299, "Córdoba"], [5300, 5399, "La Rioja"], [5400, 5499, "San Juan"],
+  [5500, 5699, "Mendoza"], [5700, 5799, "San Luis"], [5800, 5999, "Córdoba"], [6300, 6399, "La Pampa"], [7000, 7999, "Buenos Aires"], [8400, 8599, "Río Negro"],
+  [9000, 9299, "Chubut"], [9300, 9399, "Santa Cruz"]];
+function provinciaDelCp(cp) {
+  const m = String(cp || "").toUpperCase().match(/^[A-Z]?(\d{4})/); if (!m) return "";
+  const n = parseInt(m[1], 10), r = CP_PROVINCIA.find(([a, b]) => n >= a && n <= b); return r ? r[2] : "";
+}
+function estimarEnvio(prov, n) {
+  if (!prov || !n) return [];
+  const kg = (n * CFG.pesoCamiseta) / 1000;
+  return CFG.envios.map((t) => {
+    const z = t.zonas.find((x) => x.provincias.includes(prov)), i = t.kilos.findIndex((k) => kg <= k);
+    return { nombre: t.nombre, precio: z && i >= 0 ? z.precios[i] || null : null, dias: z ? z.dias : "" };
+  });
+}
+function pintarEnvio() {
+  const caja = $("envioEst"); if (!caja) return;
+  if (!CFG.envios.length) { caja.hidden = true; return; }
+  const d = datos(), n = total(); caja.hidden = false;
+  if (!d.provincia) { caja.innerHTML = "<small>Elegí tu provincia (o escribí el código postal) y te mostramos cuánto sale el envío, aproximado.</small>"; return; }
+  const kg = (n * CFG.pesoCamiseta) / 1000;
+  caja.innerHTML = `<b>Envío aproximado a ${esc(d.provincia)}</b><small>${n} ${n === 1 ? "camiseta" : "camisetas"} ≈ ${kg.toLocaleString("es-AR", { maximumFractionDigits: 1 })} kg</small>`
+    + estimarEnvio(d.provincia, n).map((e) => `<div class="t ${d.transporte === e.nombre ? "elegido" : ""}"><span>${esc(e.nombre)}${e.dias ? ` · ${esc(e.dias)}` : ""}</span><span>${e.precio ? peso(e.precio) : "a cotizar"}</span></div>`).join("")
+    + "<small>Es un estimado: el costo final del envío te lo confirma el equipo al despachar.</small>";
+}
+const envioElegido = (d) => { const e = estimarEnvio(d.provincia, total()).find((x) => x.nombre === d.transporte); return e && e.precio ? e.precio : null; };
 /* Lo que dice el botón: qué falta (camisetas de una línea o datos de envío) o que ya se puede enviar. */
 function textoEnviar() {
   const conLineas = CFG.lineas.length > 0, n = total();
@@ -758,7 +795,10 @@ function actualizarLink() {
   a.textContent = textoEnviar(); a.setAttribute("aria-disabled", String(!puedeEnviar()));
   a.href = puedeEnviar() ? `https://wa.me/${CFG.whatsapp}?text=${encodeURIComponent(mensaje())}` : "#";
 }
-$("hojaPedido").addEventListener("input", () => { datosGuardados = datos(); actualizarLink(); guardar(); });
+$("hojaPedido").addEventListener("input", (e) => {
+  if (e.target.id === "fCp" && $("fProv") && !$("fProv").value) { const p = provinciaDelCp(e.target.value); if (p) $("fProv").value = p; }
+  datosGuardados = datos(); pintarEnvio(); actualizarLink(); guardar();
+});
 $("hojaPedido").addEventListener("click", (e) => {
   const q = e.target.closest("[data-quitar]"); const ed = e.target.closest("[data-editar]");
   if (q) { delete pedido[q.dataset.quitar]; actualizar(); pintarPedido(); }
@@ -870,7 +910,7 @@ async function cargar() {
     if (!r.ok) throw new Error(r.status);
     const d = await r.json();
     if (d.mantenimiento) { mostrarObra(d); $("estado").hidden = true; return; }
-    CFG = { tramos: d.tramos, lineas: d.lineas || [], minimo: d.minimo, topeTalle: d.topeTalle || 0, hitos: d.hitos || [], variantesSueltas: d.variantesSueltas || [], aliasPago: d.aliasPago || "", titularPago: d.titularPago || "", cuentaPago: d.cuentaPago || "", limitarStock: d.limitarStock, mostrarUnidades: d.mostrarUnidades !== false, whatsapp: d.whatsapp, marca: d.marca || "", filtroVersion: d.filtroVersion !== false, mensaje: d.mensaje || "{pedido}", pausa: !!d.pausa, pedirEnvio: d.pedirEnvio !== false, pago: d.pago || "" };
+    CFG = { tramos: d.tramos, lineas: d.lineas || [], minimo: d.minimo, topeTalle: d.topeTalle || 0, hitos: d.hitos || [], variantesSueltas: d.variantesSueltas || [], pesoCamiseta: d.pesoCamiseta || 250, envios: d.envios || [], provincias: d.provincias || [], aliasPago: d.aliasPago || "", titularPago: d.titularPago || "", cuentaPago: d.cuentaPago || "", limitarStock: d.limitarStock, mostrarUnidades: d.mostrarUnidades !== false, whatsapp: d.whatsapp, marca: d.marca || "", filtroVersion: d.filtroVersion !== false, mensaje: d.mensaje || "{pedido}", pausa: !!d.pausa, pedirEnvio: d.pedirEnvio !== false, pago: d.pago || "" };
     aplicarNegocio(d);
     PRODUCTOS = d.productos; porId = new Map(PRODUCTOS.map((p) => [p.id, p]));
     $("waDirecto").href = `https://wa.me/${CFG.whatsapp}`;
