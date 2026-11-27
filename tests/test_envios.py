@@ -55,6 +55,21 @@ def test_el_negocio_trae_la_plantilla_con_precios_en_cero():
     assert cubiertas == sorted(ajustes.PROVINCIAS), "la plantilla cubre las 24 provincias"
 
 
+def test_el_negocio_trae_las_tarifas_de_via_cargo_desde_morteros():
+    # Cotizadas el 2026-11-26 en viacargo.com.ar, de Morteros (2421), despacho en agencia y retiro en agencia.
+    negocio = json.loads((Path(servidor.__file__).parent / "negocio.json").read_text(encoding="utf-8"))
+    via = next(t for t in negocio["envios"] if t["nombre"] == "Vía Cargo")
+    zonas = {z["nombre"]: z for z in via["zonas"]}
+
+    assert via["kilos"] == [2, 5, 10, 15, 20, 30, 50]
+    assert zonas["Centro, Cuyo y Litoral"]["precios"][2] == 20000 and "Córdoba" in zonas["Centro, Cuyo y Litoral"]["provincias"]
+    assert zonas["Patagonia"]["precios"][-1] == 116000
+    # Tierra del Fuego no sale en el cotizador de Vía Cargo: queda «a cotizar».
+    assert "Tierra del Fuego" not in [p for z in via["zonas"] for p in z["provincias"]]
+    assert all(all(p > 0 for p in z["precios"]) for z in via["zonas"])
+    assert negocio["enviosActualizados"] == "2026-11-26"
+
+
 def test_la_web_recibe_solo_los_transportes_con_precio(cliente, con_lineas):
     guardar_web(con_lineas, envios=[CORREO, VIA_CARGO_VACIA], pesoCamiseta=300)
     d = cliente.get("/api/catalogo").json()

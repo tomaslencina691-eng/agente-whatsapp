@@ -146,102 +146,86 @@
       ],
       "zonas": [
         {
-          "nombre": "Córdoba",
+          "nombre": "Centro, Cuyo y Litoral",
           "provincias": [
-            "Córdoba"
-          ],
-          "dias": "",
-          "precios": [
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0
-          ]
-        },
-        {
-          "nombre": "Centro",
-          "provincias": [
-            "Buenos Aires",
-            "CABA",
+            "Córdoba",
             "Santa Fe",
             "Entre Ríos",
+            "Buenos Aires",
             "La Pampa",
             "San Luis",
-            "Santiago del Estero"
-          ],
-          "dias": "",
-          "precios": [
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0
-          ]
-        },
-        {
-          "nombre": "Norte",
-          "provincias": [
-            "Catamarca",
-            "Chaco",
+            "Santiago del Estero",
             "Corrientes",
-            "Formosa",
-            "Jujuy",
-            "La Rioja",
             "Misiones",
-            "Salta",
-            "Tucumán"
+            "Chaco",
+            "Mendoza",
+            "San Juan",
+            "La Rioja"
           ],
           "dias": "",
           "precios": [
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0
+            18000,
+            18000,
+            20000,
+            31000,
+            31000,
+            39000,
+            68000
           ]
         },
         {
-          "nombre": "Cuyo",
+          "nombre": "CABA",
           "provincias": [
-            "Mendoza",
-            "San Juan"
+            "CABA"
           ],
           "dias": "",
           "precios": [
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0
+            18000,
+            18000,
+            21000,
+            31000,
+            31000,
+            40000,
+            74000
+          ]
+        },
+        {
+          "nombre": "NOA, Formosa y Río Negro",
+          "provincias": [
+            "Tucumán",
+            "Salta",
+            "Jujuy",
+            "Catamarca",
+            "Formosa",
+            "Río Negro"
+          ],
+          "dias": "",
+          "precios": [
+            21000,
+            21000,
+            24000,
+            37000,
+            37000,
+            47000,
+            84000
           ]
         },
         {
           "nombre": "Patagonia",
           "provincias": [
-            "Chubut",
             "Neuquén",
-            "Río Negro",
-            "Santa Cruz",
-            "Tierra del Fuego"
+            "Chubut",
+            "Santa Cruz"
           ],
           "dias": "",
           "precios": [
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0
+            24000,
+            24000,
+            29000,
+            45000,
+            45000,
+            61000,
+            116000
           ]
         }
       ]
@@ -417,11 +401,12 @@
     {
       "etiqueta": "Envíos",
       "titulo": "A todo el país",
-      "texto": "Por Vía Cargo o Correo Argentino. Despachamos en hasta 48 hs."
+      "texto": "Hasta 12 camisetas, por Correo Argentino: el envío se paga con el pedido. Más de 12, por Vía Cargo (sale más barato): se paga al retirar. Despachamos en hasta 48 hs."
     }
   ],
   "condiciones": "Condiciones: 6 o 12 unidades por línea, sin mezclar calidades (sí modelos). Envíos a todo el país por Vía Cargo o Correo Argentino. Despacho en hasta 48 hs.",
   "cierre": "Despachamos en hasta 48 hs por Vía Cargo o Correo Argentino.",
   "pie": "",
-  "whatsappAlterno": "5493562674486"
+  "whatsappAlterno": "5493562674486",
+  "enviosActualizados": "2026-11-26"
 }

@@ -228,7 +228,6 @@ body.en-obra { overflow: hidden; }
 .meter p { margin: 0; font-size: 14px; }
 .meter p.reparto { font-size: 13px; color: var(--gris); }
 .meter p.aviso-talle { color: #ffb347; }
-.aviso-tope { color: #ffb347; font-weight: 600; }
 .totales { display: grid; gap: 4px; font-variant-numeric: tabular-nums; }
 .totales div { display: flex; justify-content: space-between; gap: 12px; }
 .totales .gran { font-family: var(--display); font-size: 34px; line-height: 1.05; font-weight: 800; color: var(--verde); }
@@ -245,6 +244,7 @@ body.en-obra { overflow: hidden; }
 .envio-est .t { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .envio-est .t.elegido { font-weight: 700; }
 .envio-est small { opacity: .75; }
+.envio-est .paga { width: 100%; font-size: 12.5px; opacity: .8; font-weight: 400; }
 .transferir { display: grid; gap: 6px; border: 1.5px solid var(--verde); border-radius: var(--radio); padding: 12px 14px; background: var(--verde-suave); font-size: 14px; }
 .transferir > b { color: var(--verde); font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
 .transferir .alias { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
@@ -368,7 +368,6 @@ body.en-obra { overflow: hidden; }
     <div class="prod-mini"><img id="tImg" src="" alt=""><div><h3 id="tNombre"></h3><span class="badge fan" id="tVersion" style="position:static;display:inline-block"></span></div></div>
     <div class="variante" id="tVariante" hidden></div>
     <div class="talles" id="tTalles"></div>
-    <p class="nota aviso-tope" id="tTope" role="alert" hidden></p>
     <p class="nota" id="tNota">Cargá cuántas camisetas de cada talle. Podés sumar varios modelos antes de enviar.</p>
   </div>
   <div class="hoja-pie"><button class="primario" id="tGuardar" type="button">Agregar al pedido</button></div>
@@ -456,6 +455,8 @@ const SINONIMOS_TALLE = { "2XL": "XXL", "3XL": "XXXL", "4XL": "XXXXL" };
 const ORDEN_TALLES = ["XS", "S", "M", "L", "XL", "XXL", "XXXL", "XXXXL"];
 const talleBase = (t) => { const b = String(t).split(",")[0].trim().toUpperCase(); return SINONIMOS_TALLE[b] || b; };
 const maximoPorTalle = (n) => Math.max(2, Math.floor((n * CFG.topeTalle) / 100));
+/* Lo que lee el cliente: un ejemplo, sin porcentajes. */
+const TEXTO_PAREJO = "El pedido tiene que ser parejo, repartido entre talles: por ejemplo 2 S, 2 M, 2 L y 2 XL sí; 6 XL no.";
 function tallesDe(g) {
   const c = {};
   g.ids.forEach((id) => Object.entries(pedido[id] || {}).forEach(([t, n]) => { if (n > 0) { const b = talleBase(t); c[b] = (c[b] || 0) + n; } }));
@@ -540,36 +541,10 @@ function abrirTalles(id, pers) {
   $("tImg").src = `/img/${p.id}/1`; $("tImg").alt = "";
   $("tNombre").textContent = p.nombre; $("tVersion").textContent = etiquetaDe(p); $("tVersion").hidden = !etiquetaDe(p);
   $("tNota").textContent = (CFG.limitarStock ? "Cargá cuántas camisetas de cada talle. Solo se muestran los talles con stock." : "Cargá cuántas camisetas de cada talle.")
-    + (CFG.topeTalle ? ` El pedido tiene que ser parejo: en cada calidad, un mismo talle puede ser hasta el ${CFG.topeTalle}% (mínimo 2). Los modelos se mezclan como quieras.` : "");
+    + (CFG.topeTalle ? ` ${TEXTO_PAREJO} Los modelos se mezclan como quieras.` : "");
   pintarTalles(); mostrar("hojaTalles");
 }
 const sumaBorrador = (v) => Object.values(borrador[v]).reduce((a, b) => a + b, 0);
-/* El pedido como quedaría con lo que hay en la hoja (y, si se pide, una más de un talle). */
-function pedidoConBorrador(extra) {
-  const p = porId.get(editando), copia = {};
-  Object.entries(pedido).forEach(([k, v]) => { if (idDe(k) !== editando) copia[k] = { ...v }; });
-  const poner = (k, talle, n) => { if (n > 0) { copia[k] = copia[k] || {}; copia[k][talle] = (copia[k][talle] || 0) + n; } };
-  const claveDe = (v, t) => (v === "p" || (p.personalizada && talleConDorsal(p, t)) ? editando + "p" : String(editando));
-  ["l", "p"].forEach((v) => Object.entries(borrador[v]).forEach(([t, n]) => poner(claveDe(v, t), t, n)));
-  if (extra) poner(claveDe(variante, extra), extra, 1);
-  return copia;
-}
-/* Pedido parejo al cargar: si sumar una más de ese talle deja la línea despareja, no se puede. Devuelve el exceso o null. */
-function excesoAlSumar(talle) {
-  if (!CFG.topeTalle) return null;
-  const real = pedido;
-  try {
-    pedido = pedidoConBorrador(talle);
-    const g = grupos().find((x) => x.ids.some((id) => idDe(id) === editando && ((pedido[id] || {})[talle] || 0) > 0));
-    if (!g) return null;
-    const e = excesos(g).find((x) => x.talle === talleBase(talle));
-    return e ? { ...e, linea: g.nombre, total: g.n } : null;
-  } finally { pedido = real; }
-}
-function mostrarTope(e) {
-  const caja = $("tTope"); caja.hidden = false;
-  caja.innerHTML = `⚠️ Pedido parejo: en <b>${esc(e.linea)}</b> cada talle puede ser hasta el ${CFG.topeTalle}% (mínimo 2). Con ${e.total} camisetas, ya llegaste a <b>${e.max} ${esc(e.talle)}</b>. Sumá otros talles (de este o de otros modelos de la misma calidad) y se habilita más.`;
-}
 function pintarTalles() {
   const p = porId.get(editando), otra = variante === "l" ? "p" : "l", conVariante = tienePers(p);
   $("tVariante").hidden = !conVariante;
@@ -581,10 +556,8 @@ function pintarTalles() {
     const n = borrador[variante][t.talle] || 0, usadas = n + (borrador[otra][t.talle] || 0);
     return `<div class="talle"><div><b>${esc(t.talle)}</b>${CFG.mostrarUnidades ? `<small>quedan ${t.stock}</small>` : ""}</div><div class="paso">
     <button type="button" data-i="${i}" data-d="-1" aria-label="Menos ${esc(t.talle)}">−</button><output aria-live="polite">${n}</output>
-    <button type="button" data-i="${i}" data-d="1" aria-label="Más ${esc(t.talle)}" ${usadas >= maximoDe(t) || excesoAlSumar(t.talle) ? "disabled" : ""}>+</button></div></div>`;
+    <button type="button" data-i="${i}" data-d="1" aria-label="Más ${esc(t.talle)}" ${usadas >= maximoDe(t) ? "disabled" : ""}>+</button></div></div>`;
   }).join("");
-  const trabado = CFG.topeTalle ? p.talles.map((t) => excesoAlSumar(t.talle)).find(Boolean) : null;
-  if (trabado) mostrarTope(trabado); else $("tTope").hidden = true;
   const n = sumaBorrador("l") + sumaBorrador("p");
   $("tGuardar").textContent = n ? `Guardar ${n} ${n === 1 ? "camiseta" : "camisetas"} en el pedido` : (unidadesDe(editando) ? "Quitar del pedido" : "Elegí al menos un talle");
 }
@@ -596,7 +569,6 @@ $("tTalles").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-i]"); if (!b || b.disabled) return;
   const t = porId.get(editando).talles[Number(b.dataset.i)], otra = variante === "l" ? "p" : "l";
   const tope = maximoDe(t) - (borrador[otra][t.talle] || 0);
-  if (Number(b.dataset.d) > 0) { const e = excesoAlSumar(t.talle); if (e) { mostrarTope(e); return; } }
   borrador[variante][t.talle] = Math.max(0, Math.min(tope, (borrador[variante][t.talle] || 0) + Number(b.dataset.d)));
   pintarTalles();
 });
@@ -656,7 +628,7 @@ function mensaje() {
     cuerpo = grupos().map((g) => `*${g.nombre} · ${g.n} u.${g.precio != null ? ` × ${peso(g.precio)} = ${peso(g.precio * g.n)}` : ""}*\n` + g.ids.map((id) => renglon(id, ++i)).join("\n")).join("\n\n");
   } else cuerpo = Object.keys(pedido).map((id) => renglon(id, ++i)).join("\n");
   /* Los datos para despachar van después del pedido; si el mensaje guardado en el panel no tiene {envio}, se suman igual. */
-  const bloqueEnvio = [d.dni && `DNI: ${d.dni}`, (d.provincia || d.ciudad) && `Provincia / ciudad: ${[d.provincia, d.ciudad].filter(Boolean).join(" / ")}`, d.cp && `Código postal: ${d.cp}`, d.direccion && `Dirección: ${d.direccion}`, d.email && `Correo: ${d.email}`, d.transporte && `Envío por: ${d.transporte}`, envioElegido(d) && `Envío aproximado: ${peso(envioElegido(d))} (a confirmar)`].filter(Boolean);
+  const bloqueEnvio = [d.dni && `DNI: ${d.dni}`, (d.provincia || d.ciudad) && `Provincia / ciudad: ${[d.provincia, d.ciudad].filter(Boolean).join(" / ")}`, d.cp && `Código postal: ${d.cp}`, d.direccion && `Dirección: ${d.direccion}`, d.email && `Correo: ${d.email}`, d.transporte && `Envío por: ${d.transporte}`, d.transporte && `Pago del envío: ${seSumaALaTransferencia(d.transporte) ? "antes, junto con el pedido" : "al retirar (pago en destino)"}`, envioElegido(d) && `Envío aproximado: ${peso(envioElegido(d))} (a confirmar)`].filter(Boolean);
   const envio = bloqueEnvio.length ? `*Datos de envío*\n${bloqueEnvio.join("\n")}` : "";
   const plantilla = CFG.mensaje.includes("{envio}") || !envio ? CFG.mensaje : CFG.mensaje.replace("{pedido}", "{pedido}\n\n{envio}");
   return renderMensaje(plantilla, { marca: CFG.marca, codigo: codigoActual(), nombre: d.nombre, negocio: d.negocio, pedido: cuerpo, envio,
@@ -705,7 +677,7 @@ function pintarPedido() {
   const tallesLinea = (g) => {
     if (!CFG.topeTalle) return "";
     const ex = excesos(g), reparto = tallesDe(g).map(([t, k]) => `${esc(t)} ${k}`).join(" · ");
-    return `<p class="reparto">Talles: ${reparto}</p>` + (ex.length ? `<p class="aviso-talle">Para que el pedido sea parejo, cada talle puede ser hasta <b>${ex[0].max}</b> de ${g.n} (${CFG.topeTalle}%). Tenés <b>${ex.map((e) => `${e.n} ${esc(e.talle)}`).join(" y ")}</b>: sumá otros talles o bajá ${ex.length === 1 ? "ese" : "esos"}.</p>` : "");
+    return `<p class="reparto">Talles: ${reparto}</p>` + (ex.length ? `<p class="aviso-talle">⚠️ ${TEXTO_PAREJO} Tenés <b>${ex.map((e) => `${e.n} ${esc(e.talle)}`).join(" y ")}</b>: sumá otros talles o bajá ${ex.length === 1 ? "ese" : "esos"}.</p>` : "");
   };
   const medidor = conLineas
     ? `<div class="meter">${gs.map((g) => {
@@ -732,7 +704,8 @@ function pintarPedido() {
       <div class="campo"><label for="fCiudad">Ciudad</label><input id="fCiudad" autocomplete="address-level2" value="${esc(f.ciudad)}"></div></div>
     <div class="campo"><label for="fDir">Dirección (calle y numeración)</label><input id="fDir" autocomplete="street-address" value="${esc(f.direccion)}"></div>
     <div class="campo"><label for="fEmail">Correo electrónico</label><input id="fEmail" type="email" inputmode="email" autocomplete="email" value="${esc(f.email)}"></div>
-    <div class="campo"><label for="fTransp">Enviar por</label><select id="fTransp"><option value="">Elegí una opción</option>${["Vía Cargo", "Correo Argentino"].map((o) => `<option ${f.transporte === o ? "selected" : ""}>${o}</option>`).join("")}</select></div>
+    <div class="campo"><label for="fTransp">Enviar por</label><select id="fTransp"><option value="">Elegí una opción</option>${transportesEnOrden(n).map((o) => `<option value="${o}" ${f.transporte === o ? "selected" : ""}>${o}${o === recomendado(n) ? " (recomendado)" : ""}</option>`).join("")}</select>
+      <small class="nota">${n > TOPE_CORREO ? `Con más de ${TOPE_CORREO} camisetas te recomendamos Vía Cargo: sale más barato.` : `Hasta ${TOPE_CORREO} camisetas te recomendamos Correo Argentino.`} Correo Argentino se paga antes, junto con el pedido; Vía Cargo se paga al retirar.</small></div>
     <div class="envio-est" id="envioEst" aria-live="polite" hidden></div>` : ""}
     <div class="campo"><label for="fNotas">Notas del pedido (opcional)</label><textarea id="fNotas">${esc(f.notas)}</textarea></div>
     ${CFG.aliasPago ? `<div class="transferir"><b>Datos para transferir</b>
@@ -747,7 +720,7 @@ function pintarPedido() {
     : (pu ? `<div><span>Precio por unidad</span><b>${peso(pu)}</b></div><div class="gran"><span>Total</span><span>${peso(pu * n)}</span></div>` : `<div><span>Precio por unidad</span><b>${CFG.tramos.length ? `desde ${minimo} camisetas` : "a confirmar"}</b></div>`);
   const textoBoton = textoEnviar();
   $("pPie").innerHTML = `<div class="totales"><div><span>Camisetas</span><b>${n}</b></div>
-    ${filasTotal}</div>
+    ${filasTotal}<div id="envioPie" style="display:contents"></div></div>
     <a class="primario" id="enviarWA" href="#" target="_blank" rel="noopener" aria-disabled="${!puedeEnviar()}">${textoBoton}</a>
     <button class="secundario" id="copiar" type="button">Copiar pedido</button>
     <p class="nota" id="notaCopia">Se abre tu WhatsApp con el pedido escrito.</p>`;
@@ -757,6 +730,13 @@ function pintarPedido() {
    El paquete: las camisetas apiladas en una base de largo × ancho; se cobra el mayor entre el peso real
    (camisetas × peso de una embalada) y el volumétrico (largo × ancho × alto / divisor del transporte).
    Se toma la primera columna «hasta X kg» que alcanza. */
+/* Hasta 12 camisetas conviene Correo Argentino; desde 13, Vía Cargo (por costo). Cómo se paga cada uno:
+   el Correo se paga antes, con el pedido (va en la transferencia); Vía Cargo, al retirar (pago en destino). */
+const TOPE_CORREO = 12;
+const recomendado = (n) => (n > TOPE_CORREO ? "Vía Cargo" : "Correo Argentino");
+const transportesEnOrden = (n) => (n > TOPE_CORREO ? ["Vía Cargo", "Correo Argentino"] : ["Correo Argentino", "Vía Cargo"]);
+const COMO_SE_PAGA = { "Correo Argentino": "se paga antes, junto con el pedido", "Vía Cargo": "retirás en la sucursal de Vía Cargo y lo pagás ahí (a domicilio sale más)" };
+const seSumaALaTransferencia = (nombre) => nombre === "Correo Argentino";
 function paqueteDe(n) {
   const alto = Math.max(1, Math.ceil((n * CFG.paquete.altoMm) / 10));
   return { largo: CFG.paquete.largo, ancho: CFG.paquete.ancho, alto, real: (n * CFG.pesoCamiseta) / 1000 };
@@ -782,13 +762,23 @@ function estimarEnvio(prov, n) {
 }
 function pintarEnvio() {
   const caja = $("envioEst"); if (!caja) return;
+  pintarEnvioPie();
   if (!CFG.envios.length) { caja.hidden = true; return; }
   const d = datos(), n = total(); caja.hidden = false;
   if (!d.provincia) { caja.innerHTML = "<small>Elegí tu provincia (o escribí el código postal) y te mostramos cuánto sale el envío, aproximado.</small>"; return; }
   const pq = paqueteDe(n);
   caja.innerHTML = `<b>Envío aproximado a ${esc(d.provincia)}</b><small>${n} ${n === 1 ? "camiseta" : "camisetas"} · paquete aprox. ${pq.largo}×${pq.ancho}×${pq.alto} cm · ${kgTexto(pq.real)} kg</small>`
-    + estimarEnvio(d.provincia, n).map((e) => `<div class="t ${d.transporte === e.nombre ? "elegido" : ""}"><span>${esc(e.nombre)}${e.dias ? ` · ${esc(e.dias)}` : ""}</span><span>${e.precio ? peso(e.precio) : "a cotizar"}</span></div>`).join("")
+    + estimarEnvio(d.provincia, n).sort((a, b) => (b.nombre === recomendado(n)) - (a.nombre === recomendado(n))).map((e) => `<div class="t ${d.transporte === e.nombre ? "elegido" : ""}"><span>${esc(e.nombre)}${e.nombre === recomendado(n) ? " (recomendado)" : ""}${e.dias ? ` · ${esc(e.dias)}` : ""}</span><span>${e.precio ? peso(e.precio) : "a cotizar"}</span>${COMO_SE_PAGA[e.nombre] ? `<span class="paga">${esc(COMO_SE_PAGA[e.nombre])}</span>` : ""}</div>`).join("")
     + "<small>Es un estimado: el costo final del envío te lo confirma el equipo al despachar.</small>";
+}
+/* En el pie: el envío elegido y, si es por Correo (se paga antes), el total a transferir con el envío. */
+function pintarEnvioPie() {
+  const caja = $("envioPie"); if (!caja) return;
+  const d = datos(), e = envioElegido(d), tp = CFG.lineas.length ? totalPrecio() : null;
+  if (!d.transporte) { caja.innerHTML = ""; return; }
+  const paga = seSumaALaTransferencia(d.transporte) ? "se paga con el pedido" : "se paga al retirar";
+  caja.innerHTML = `<div><span>Envío por ${esc(d.transporte)} (${paga})</span><b>${e ? `aprox. ${peso(e)}` : "a cotizar"}</b></div>`
+    + (seSumaALaTransferencia(d.transporte) && e && tp ? `<div><span>Total a transferir con el envío</span><b>aprox. ${peso(tp + e)}</b></div>` : "");
 }
 const envioElegido = (d) => { const e = estimarEnvio(d.provincia, total()).find((x) => x.nombre === d.transporte); return e && e.precio ? e.precio : null; };
 /* Lo que dice el botón: qué falta (camisetas de una línea o datos de envío) o que ya se puede enviar. */
