@@ -705,7 +705,7 @@ function pintarPedido() {
     <div class="campo"><label for="fDir">Dirección (calle y numeración)</label><input id="fDir" autocomplete="street-address" value="${esc(f.direccion)}"></div>
     <div class="campo"><label for="fEmail">Correo electrónico</label><input id="fEmail" type="email" inputmode="email" autocomplete="email" value="${esc(f.email)}"></div>
     <div class="campo"><label for="fTransp">Enviar por</label><select id="fTransp"><option value="">Elegí una opción</option>${transportesEnOrden(n).map((o) => `<option value="${o}" ${f.transporte === o ? "selected" : ""}>${o}${o === recomendado(n) ? " (recomendado)" : ""}</option>`).join("")}</select>
-      <small class="nota">${n > TOPE_CORREO ? `Con más de ${TOPE_CORREO} camisetas te recomendamos Vía Cargo: sale más barato.` : `Hasta ${TOPE_CORREO} camisetas te recomendamos Correo Argentino.`} Correo Argentino se paga antes, junto con el pedido; Vía Cargo se paga al retirar.</small></div>
+      <small class="nota">${conCorreo() ? `${n > TOPE_CORREO ? `Con más de ${TOPE_CORREO} camisetas te recomendamos Vía Cargo: sale más barato.` : `Hasta ${TOPE_CORREO} camisetas te recomendamos Correo Argentino.`} Correo Argentino se paga antes, junto con el pedido; Vía Cargo se paga al retirar.` : "Enviamos por Vía Cargo: retirás en la sucursal y lo pagás ahí."}</small></div>
     <div class="envio-est" id="envioEst" aria-live="polite" hidden></div>` : ""}
     <div class="campo"><label for="fNotas">Notas del pedido (opcional)</label><textarea id="fNotas">${esc(f.notas)}</textarea></div>
     ${CFG.aliasPago ? `<div class="transferir"><b>Datos para transferir</b>
@@ -733,8 +733,12 @@ function pintarPedido() {
 /* Hasta 12 camisetas conviene Correo Argentino; desde 13, Vía Cargo (por costo). Cómo se paga cada uno:
    el Correo se paga antes, con el pedido (va en la transferencia); Vía Cargo, al retirar (pago en destino). */
 const TOPE_CORREO = 12;
-const recomendado = (n) => (n > TOPE_CORREO ? "Vía Cargo" : "Correo Argentino");
-const transportesEnOrden = (n) => (n > TOPE_CORREO ? ["Vía Cargo", "Correo Argentino"] : ["Correo Argentino", "Vía Cargo"]);
+/* Correo Argentino se ofrece solo cuando tiene precios cargados (la web publica nada más los transportes con precio).
+   Mientras tanto no se nombra: todo va por Vía Cargo. Sin ninguna tabla cargada, se ofrecen los dos como antes. */
+const disponibles = () => { const con = CFG.envios.map((t) => t.nombre); return con.length ? ["Correo Argentino", "Vía Cargo"].filter((t) => con.includes(t)) : ["Correo Argentino", "Vía Cargo"]; };
+const conCorreo = () => disponibles().includes("Correo Argentino");
+const recomendado = (n) => (disponibles().length < 2 ? "" : n > TOPE_CORREO ? "Vía Cargo" : "Correo Argentino");
+const transportesEnOrden = (n) => (n > TOPE_CORREO ? ["Vía Cargo", "Correo Argentino"] : ["Correo Argentino", "Vía Cargo"]).filter((t) => disponibles().includes(t));
 const COMO_SE_PAGA = { "Correo Argentino": "se paga antes, junto con el pedido", "Vía Cargo": "retirás en la sucursal de Vía Cargo y lo pagás ahí (a domicilio sale más)" };
 const seSumaALaTransferencia = (nombre) => nombre === "Correo Argentino";
 function paqueteDe(n) {

@@ -401,11 +401,11 @@
     {
       "etiqueta": "Envíos",
       "titulo": "A todo el país",
-      "texto": "Hasta 12 camisetas, por Correo Argentino: el envío se paga con el pedido. Más de 12, por Vía Cargo (sale más barato): se paga al retirar. Despachamos en hasta 48 hs."
+      "texto": "Por Vía Cargo: retirás en la sucursal y el envío lo pagás ahí. Despachamos en hasta 48 hs."
     }
   ],
-  "condiciones": "Condiciones: 6 o 12 unidades por línea, sin mezclar calidades (sí modelos). Envíos a todo el país por Vía Cargo o Correo Argentino. Despacho en hasta 48 hs.",
-  "cierre": "Despachamos en hasta 48 hs por Vía Cargo o Correo Argentino.",
+  "condiciones": "Condiciones: 6 o 12 unidades por línea, sin mezclar calidades (sí modelos). Envíos a todo el país por Vía Cargo. Despacho en hasta 48 hs.",
+  "cierre": "Despachamos en hasta 48 hs por Vía Cargo.",
   "pie": "",
   "whatsappAlterno": "5493562674486",
   "enviosActualizados": "2026-11-26"
