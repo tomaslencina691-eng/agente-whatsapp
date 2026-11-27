@@ -461,6 +461,25 @@ def test_el_historial_agrupa_por_guardado(sesion, alm):
 
     assert len(lotes) == 1 and len(lotes[0]["entradas"]) == 2
     assert lotes[0]["se_puede_deshacer"] is True
+    assert lotes[0]["deshecho"] is False
+
+
+def test_un_cambio_de_ajustes_no_figura_como_deshecho():
+    h = hist.HistorialMemoria()
+    h.anotar(hist.lote_nuevo(), "admin", [{"accion": "config", "producto_id": 0, "producto": "Web mayorista", "talle": "reglas", "antes": None, "despues": 1}])
+
+    lote = h.lotes(30)[0]
+
+    assert (lote["deshecho"], lote["se_puede_deshacer"]) == (False, False)
+
+
+def test_deshacer_un_guardado_lo_marca_como_deshecho(sesion, alm):
+    lote = sesion.post("/admin/api/stock/aplicar", json={"cambios": [cambio(alm, 1, "M", 7)]}, headers=H).json()["lote"]
+
+    sesion.post(f"/admin/api/historial/{lote}/deshacer", headers=H)
+    deshecho = next(l for l in sesion.get("/admin/api/historial").json() if l["lote"] == lote)
+
+    assert (deshecho["deshecho"], deshecho["se_puede_deshacer"]) == (True, False)
 
 
 # -- Pedidos ------------------------------------------------------------------

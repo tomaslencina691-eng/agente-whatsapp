@@ -130,13 +130,14 @@ def _agrupar(filas: list[dict], limite: int) -> list[dict]:
     for f in filas:
         lote = lotes.setdefault(
             f["lote"],
-            {"lote": f["lote"], "fecha": f["fecha"], "usuario": f["usuario"], "entradas": [], "deshecho": True},
+            {"lote": f["lote"], "fecha": f["fecha"], "usuario": f["usuario"], "entradas": []},
         )
         lote["entradas"].append(f)
-        if f["accion"] in REVERSIBLES and not f["deshecho"]:
-            lote["deshecho"] = False
     salida = list(lotes.values())[:limite]
     for lote in salida:
+        # Deshecho: tenía stock para devolver y ya se devolvió todo. Un cambio de ajustes nunca lo está.
+        reversibles = [e for e in lote["entradas"] if e["accion"] in REVERSIBLES]
+        lote["deshecho"] = bool(reversibles) and all(e["deshecho"] for e in reversibles)
         # Un lote que es solo el alta de un modelo nuevo no se puede deshacer desde acá.
         lote["se_puede_deshacer"] = any(e["accion"] in REVERSIBLES for e in lote["entradas"]) and not lote["deshecho"]
     return salida
