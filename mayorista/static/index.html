@@ -733,9 +733,11 @@ function pintarPedido() {
 /* Hasta 12 camisetas conviene Correo Argentino; desde 13, Vía Cargo (por costo). Cómo se paga cada uno:
    el Correo se paga antes, con el pedido (va en la transferencia); Vía Cargo, al retirar (pago en destino). */
 const TOPE_CORREO = 12;
-/* Correo Argentino se ofrece solo cuando tiene precios cargados (la web publica nada más los transportes con precio).
-   Mientras tanto no se nombra: todo va por Vía Cargo. Sin ninguna tabla cargada, se ofrecen los dos como antes. */
-const disponibles = () => { const con = CFG.envios.map((t) => t.nombre); return con.length ? ["Correo Argentino", "Vía Cargo"].filter((t) => con.includes(t)) : ["Correo Argentino", "Vía Cargo"]; };
+/* Hasta tener las API de Correo y Vía Cargo no se cotiza nada: se elige el transporte, sin precios.
+   Para volver a mostrar el envío aproximado con las tablas del panel, poner true. */
+const COTIZAR_ENVIO = false;
+/* Cotizando, se ofrecen solo los transportes con precio cargado (la web publica nada más esos). */
+const disponibles = () => { const con = CFG.envios.map((t) => t.nombre); return COTIZAR_ENVIO && con.length ? ["Correo Argentino", "Vía Cargo"].filter((t) => con.includes(t)) : ["Correo Argentino", "Vía Cargo"]; };
 const conCorreo = () => disponibles().includes("Correo Argentino");
 const recomendado = (n) => (disponibles().length < 2 ? "" : n > TOPE_CORREO ? "Vía Cargo" : "Correo Argentino");
 const transportesEnOrden = (n) => (n > TOPE_CORREO ? ["Vía Cargo", "Correo Argentino"] : ["Correo Argentino", "Vía Cargo"]).filter((t) => disponibles().includes(t));
@@ -767,7 +769,7 @@ function estimarEnvio(prov, n) {
 function pintarEnvio() {
   const caja = $("envioEst"); if (!caja) return;
   pintarEnvioPie();
-  if (!CFG.envios.length) { caja.hidden = true; return; }
+  if (!COTIZAR_ENVIO || !CFG.envios.length) { caja.hidden = true; return; }
   const d = datos(), n = total(); caja.hidden = false;
   if (!d.provincia) { caja.innerHTML = "<small>Elegí tu provincia (o escribí el código postal) y te mostramos cuánto sale el envío, aproximado.</small>"; return; }
   const pq = paqueteDe(n);
@@ -779,12 +781,12 @@ function pintarEnvio() {
 function pintarEnvioPie() {
   const caja = $("envioPie"); if (!caja) return;
   const d = datos(), e = envioElegido(d), tp = CFG.lineas.length ? totalPrecio() : null;
-  if (!d.transporte) { caja.innerHTML = ""; return; }
+  if (!COTIZAR_ENVIO || !d.transporte) { caja.innerHTML = ""; return; }
   const paga = seSumaALaTransferencia(d.transporte) ? "se paga con el pedido" : "se paga al retirar";
   caja.innerHTML = `<div><span>Envío por ${esc(d.transporte)} (${paga})</span><b>${e ? `aprox. ${peso(e)}` : "a cotizar"}</b></div>`
     + (seSumaALaTransferencia(d.transporte) && e && tp ? `<div><span>Total a transferir con el envío</span><b>aprox. ${peso(tp + e)}</b></div>` : "");
 }
-const envioElegido = (d) => { const e = estimarEnvio(d.provincia, total()).find((x) => x.nombre === d.transporte); return e && e.precio ? e.precio : null; };
+const envioElegido = (d) => { if (!COTIZAR_ENVIO) return null; const e =estimarEnvio(d.provincia, total()).find((x) => x.nombre === d.transporte); return e && e.precio ? e.precio : null; };
 /* Lo que dice el botón: qué falta (camisetas de una línea o datos de envío) o que ya se puede enviar. */
 function textoEnviar() {
   const conLineas = CFG.lineas.length > 0, n = total();
